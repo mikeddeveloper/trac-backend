@@ -8,9 +8,10 @@ import { BidsController } from './bids.controller';
 import { Bid } from './entities/bid.entity';
 import { JobsModule } from '../jobs/jobs.module';
 import { PushModule } from '../push/push.module';
+import { EventsModule } from '../events/events.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Bid]), JobsModule, PushModule],
+  imports: [TypeOrmModule.forFeature([Bid]), JobsModule, PushModule, EventsModule],
   controllers: [BidsController],
   providers: [BidsService],
   exports: [BidsService],
