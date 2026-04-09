@@ -1,5 +1,5 @@
 // trac-backend/src/main.ts
-// Fixed CORS to allow both port 5173 and 5174
+// Production CORS fix
 
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
@@ -14,8 +14,9 @@ async function bootstrap() {
       'http://localhost:5173',
       'http://localhost:5174',
       'http://localhost:3000',
-      process.env.FRONTEND_URL || 'http://localhost:5173',
-    ],
+      'https://trac-logistics-web-app.vercel.app',
+      process.env.FRONTEND_URL,
+    ].filter(Boolean),
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     credentials: true,
     allowedHeaders: ['Content-Type', 'Authorization', 'x-paystack-signature'],
