@@ -59,7 +59,7 @@ export class PaymentsService {
           email,
           amount: Math.round(amount * 100),
           reference,
-          // callback_url removed — payment confirmed via webhook instead
+          callback_url: `${this.configService.get('FRONTEND_URL') || 'https://trac-logistics-web-app.vercel.app'}/dashboard/payments`,
           metadata: { jobId, ...metadata },
         },
         { headers: this.headers },
