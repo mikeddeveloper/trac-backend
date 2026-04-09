@@ -11,6 +11,7 @@ import { Bid, BidStatus } from './entities/bid.entity';
 import { JobsService } from '../jobs/jobs.service';
 import { JobStatus } from '../jobs/entities/job.entity';
 import { PushService } from '../push/push.service';
+import { EventsGateway } from '../events/events.gateway';
 
 @Injectable()
 export class BidsService {
@@ -19,6 +20,7 @@ export class BidsService {
     private bidsRepo: Repository<Bid>,
     private jobsService: JobsService,
     private pushService: PushService,
+    private eventsGateway: EventsGateway,
   ) {}
 
   async placeBid(transporterId: string, jobId: string, amount: number, note?: string): Promise<Bid> {
@@ -32,6 +34,16 @@ export class BidsService {
 
     const bid = this.bidsRepo.create({ transporterId, jobId, amount, note });
     const saved = await this.bidsRepo.save(bid);
+
+    // ── Socket: notify customer of new bid in real-time ──
+    if (job.customerId) {
+      this.eventsGateway.notifyUser(job.customerId, 'bid:new', {
+        jobId,
+        amount,
+        transporterId,
+        message: 'A new bid has been placed on your delivery',
+      });
+    }
 
     // ── Push: notify customer of new bid ──
     if (job.customerId) {
