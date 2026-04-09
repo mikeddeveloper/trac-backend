@@ -1,5 +1,5 @@
 // trac-backend/src/jobs/jobs.service.ts
-// Day 16: Proof of delivery upload + status update
+// Day 27 + Real-time: Push notifications + socket broadcast
 
 import {
   Injectable,
@@ -12,6 +12,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Job, JobStatus } from './entities/job.entity';
 import { EventsGateway } from '../events/events.gateway';
+import { PushService } from '../push/push.service';
 import { createClient } from '@supabase/supabase-js';
 import { ConfigService } from '@nestjs/config';
 
@@ -39,21 +40,30 @@ export class JobsService {
     @InjectRepository(Job)
     private jobRepo: Repository<Job>,
     private eventsGateway: EventsGateway,
+    private pushService: PushService,
     private configService: ConfigService,
   ) {
-    // Initialize Supabase client for storage
     const url = this.configService.get<string>('SUPABASE_URL');
     const key = this.configService.get<string>('SUPABASE_SERVICE_KEY');
-    if (url && key) {
-      this.supabase = createClient(url, key);
-    }
+    if (url && key) this.supabase = createClient(url, key);
   }
 
   // ─── Create Job ──────────────────────────────────────────────────────────
 
   async createJob(customerId: string, dto: Partial<Job>): Promise<Job> {
     const job = this.jobRepo.create({ ...dto, customerId, status: JobStatus.BIDDING });
-    return this.jobRepo.save(job);
+    const saved = await this.jobRepo.save(job);
+
+    // ── Broadcast to all transporters in real-time ──
+    this.eventsGateway.broadcast('bid:new', {
+      jobId: saved.id,
+      pickupState: saved.pickupState,
+      deliveryState: saved.deliveryState,
+      vehicleType: saved.vehicleType,
+      message: 'New delivery job posted',
+    });
+
+    return saved;
   }
 
   // ─── Get open jobs ────────────────────────────────────────────────────────
@@ -135,19 +145,16 @@ export class JobsService {
   ): Promise<Job> {
     const job = await this.getJobById(jobId);
 
-    // Check role permission
     const allowedForRole = ROLE_PERMISSIONS[userRole] || [];
     if (!allowedForRole.includes(newStatus)) {
       throw new ForbiddenException(`Role '${userRole}' cannot set status to '${newStatus}'`);
     }
 
-    // Check valid transition
     const allowedNext = ALLOWED_TRANSITIONS[job.status] || [];
     if (!allowedNext.includes(newStatus)) {
       throw new BadRequestException(`Cannot move from '${job.status}' to '${newStatus}'`);
     }
 
-    // Check user is assigned
     if (userRole === 'transporter' && job.transporterId !== userId) {
       throw new ForbiddenException('You are not assigned to this job');
     }
@@ -155,14 +162,12 @@ export class JobsService {
       throw new ForbiddenException('This is not your job');
     }
 
-    // Day 16: Require proof before marking delivered
     if (newStatus === JobStatus.DELIVERED && !job.proofOfDeliveryUrl) {
-      throw new BadRequestException(
-        'Please upload proof of delivery photo before marking as delivered',
-      );
+      throw new BadRequestException('Please upload proof of delivery photo before marking as delivered');
     }
 
     const previousStatus = job.status;
+    const route = `${job.pickupState} → ${job.deliveryState}`;
 
     await this.jobRepo.update(jobId, {
       status: newStatus,
@@ -174,35 +179,42 @@ export class JobsService {
     this.logger.log(`Job ${jobId}: ${previousStatus} → ${newStatus}`);
 
     const eventPayload = {
-      jobId,
-      previousStatus,
-      newStatus,
-      updatedAt: new Date(),
-      note: note || null,
+      jobId, previousStatus, newStatus,
+      updatedAt: new Date(), note: note || null,
       proofOfDeliveryUrl: updatedJob.proofOfDeliveryUrl || null,
     };
 
-    // Notify customer
+    // ── Socket notifications ──
     if (updatedJob.customerId) {
       this.eventsGateway.notifyUser(updatedJob.customerId, 'job:statusUpdate', {
-        ...eventPayload,
-        message: this.getCustomerMessage(newStatus),
+        ...eventPayload, message: this.getCustomerMessage(newStatus),
+      });
+    }
+    if (updatedJob.transporterId && updatedJob.transporterId !== userId) {
+      this.eventsGateway.notifyUser(updatedJob.transporterId, 'job:statusUpdate', {
+        ...eventPayload, message: this.getTransporterMessage(newStatus),
       });
     }
 
-    // Notify transporter
-    if (updatedJob.transporterId && updatedJob.transporterId !== userId) {
-      this.eventsGateway.notifyUser(updatedJob.transporterId, 'job:statusUpdate', {
-        ...eventPayload,
-        message: this.getTransporterMessage(newStatus),
-      });
+    // ── Push notifications ──
+    if (newStatus === JobStatus.IN_TRANSIT && updatedJob.customerId) {
+      await this.pushService.sendToUser(
+        updatedJob.customerId,
+        this.pushService.templates.jobPickedUp(route),
+      ).catch(() => {});
+    }
+
+    if (newStatus === JobStatus.DELIVERED && updatedJob.customerId) {
+      await this.pushService.sendToUser(
+        updatedJob.customerId,
+        this.pushService.templates.jobDelivered(route),
+      ).catch(() => {});
     }
 
     return updatedJob;
   }
 
   // ─── Upload Proof of Delivery ─────────────────────────────────────────────
-  // Day 16 core feature
 
   async uploadProofOfDelivery(
     jobId: string,
@@ -213,29 +225,22 @@ export class JobsService {
   ): Promise<Job> {
     const job = await this.getJobById(jobId);
 
-    // Verify transporter is assigned to this job
     if (job.transporterId !== transporterId) {
       throw new ForbiddenException('You are not assigned to this job');
     }
-
-    // Job must be in-transit to upload proof
     if (job.status !== JobStatus.IN_TRANSIT) {
       throw new BadRequestException('Job must be in-transit to upload proof of delivery');
     }
 
     let proofUrl: string;
 
-    // Upload to Supabase Storage if configured
     if (this.supabase) {
       const ext = originalName.split('.').pop() || 'jpg';
       const fileName = `proof-${jobId}-${Date.now()}.${ext}`;
 
-      const { data, error } = await this.supabase.storage
+      const { error } = await this.supabase.storage
         .from('delivery-proofs')
-        .upload(fileName, fileBuffer, {
-          contentType: mimeType,
-          upsert: true,
-        });
+        .upload(fileName, fileBuffer, { contentType: mimeType, upsert: true });
 
       if (error) {
         this.logger.error('Supabase upload error:', error.message);
@@ -248,21 +253,18 @@ export class JobsService {
 
       proofUrl = urlData.publicUrl;
     } else {
-      // Fallback: store as base64 data URL (dev mode without Supabase storage)
       proofUrl = `data:${mimeType};base64,${fileBuffer.toString('base64')}`;
       this.logger.warn('Supabase storage not configured — using base64 fallback');
     }
 
-    // Save proof URL to job
     await this.jobRepo.update(jobId, {
       proofOfDeliveryUrl: proofUrl,
       proofUploadedAt: new Date(),
     });
 
     const updatedJob = await this.getJobById(jobId);
-    this.logger.log(`✅ Proof of delivery uploaded for job ${jobId}`);
+    this.logger.log(`✅ Proof uploaded for job ${jobId}`);
 
-    // Notify customer with the proof photo
     if (updatedJob.customerId) {
       this.eventsGateway.notifyUser(updatedJob.customerId, 'job:proofUploaded', {
         jobId,
