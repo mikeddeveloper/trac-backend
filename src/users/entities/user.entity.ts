@@ -23,11 +23,14 @@ export class User {
   @Column({ unique: true })
   email: string;
 
-  @Column()
+  @Column({ nullable: true })
   phone: string;
 
-  @Column({ select: false })
+  @Column({ select: false, nullable: true })
   password: string;
+
+  @Column({ nullable: true })
+  googleId: string;
 
   @Column({ type: 'enum', enum: UserRole, default: UserRole.CUSTOMER })
   role: UserRole;

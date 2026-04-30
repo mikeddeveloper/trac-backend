@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { UsersService } from '../users/users.service';
+import { UserRole } from '../users/entities/user.entity';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
 
@@ -88,6 +89,49 @@ export class AuthService {
     await this.usersService.updateRefreshToken(userId, hashedRefresh);
 
     return { accessToken, refreshToken };
+  }
+
+  async googleLogin(googleUser: {
+    googleId: string;
+    email: string;
+    fullName: string;
+    avatarUrl?: string | null;
+  }) {
+    let user = await this.usersService.findByGoogleId(googleUser.googleId);
+
+    if (!user) {
+      const existing = await this.usersService.findByEmail(googleUser.email);
+      if (existing) {
+        await this.usersService.updateProfile(existing.id, {
+          googleId: googleUser.googleId,
+          avatarUrl: googleUser.avatarUrl ?? existing.avatarUrl,
+        });
+        user = await this.usersService.findById(existing.id);
+      } else {
+        user = await this.usersService.create({
+          googleId: googleUser.googleId,
+          email: googleUser.email,
+          fullName: googleUser.fullName,
+          avatarUrl: googleUser.avatarUrl ?? undefined,
+          role: UserRole.CUSTOMER,
+          isVerified: true,
+        });
+      }
+    }
+
+    const tokens = await this.generateTokens(user.id, user.email, user.role);
+
+    return {
+      user: {
+        id: user.id,
+        fullName: user.fullName,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        isVerified: user.isVerified,
+      },
+      ...tokens,
+    };
   }
 
   async logout(userId: string) {

@@ -27,59 +27,62 @@ export enum PaymentType {
 @Entity('payments')
 export class Payment {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column({ unique: true })
-  reference: string;
+  reference!: string;
 
   @Column({ type: 'decimal', precision: 15, scale: 2 })
-  amount: number;
+  amount!: number;
 
   // ── Currency — NGN or USD ──
   @Column({ default: 'NGN' })
-  currency: string;
+  currency!: string;
 
   @Column({ type: 'enum', enum: PaymentStatus, default: PaymentStatus.PENDING })
-  status: PaymentStatus;
+  status!: PaymentStatus;
 
   @Column({ type: 'enum', enum: PaymentType, default: PaymentType.ESCROW })
-  type: PaymentType;
+  type!: PaymentType;
 
   @Column({ nullable: true })
-  authorizationUrl: string;
+  authorizationUrl!: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  paystackMeta: Record<string, any>;
+  paystackMeta!: Record<string, any>;
 
   @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
-  tracCommission: number;
+  tracCommission!: number;
 
   @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
-  transporterPayout: number;
+  transporterPayout!: number;
 
   @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
-  customerCashback: number;
+  customerCashback!: number;
+
+  @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
+  vatAmount!: number;
 
   @ManyToOne(() => User, { eager: false, nullable: true })
   @JoinColumn({ name: 'customerId' })
-  customer: User;
+  customer!: User;
 
   @Column({ nullable: true })
-  customerId: string;
+  customerId!: string;
 
   @ManyToOne(() => Job, { eager: false, nullable: true })
   @JoinColumn({ name: 'jobId' })
-  job: Job;
+  job!: Job;
 
   @Column({ nullable: true })
-  jobId: string;
+  jobId!: string;
 
   @Column({ nullable: true })
-  paidAt: Date;
+  paidAt!: Date;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }

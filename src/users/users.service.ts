@@ -25,6 +25,10 @@ export class UsersService {
     return this.usersRepo.findOne({ where: { email } });
   }
 
+  async findByGoogleId(googleId: string): Promise<User | null> {
+    return this.usersRepo.findOne({ where: { googleId } });
+  }
+
   async findByEmailWithPassword(email: string): Promise<User | null> {
     return this.usersRepo
       .createQueryBuilder('user')

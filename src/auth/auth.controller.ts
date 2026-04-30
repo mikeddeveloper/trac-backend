@@ -1,8 +1,9 @@
 import {
   Controller, Post, Get,
-  Body, Request, UseGuards, HttpCode, HttpStatus,
+  Body, Request, Res, UseGuards, HttpCode, HttpStatus,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { UsersService } from '../users/users.service';
 
@@ -11,6 +12,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly usersService: UsersService,
+    private readonly configService: ConfigService,
   ) {}
 
   @Post('signup')
@@ -29,6 +31,25 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async logout(@Request() req: any) {
     return this.authService.logout(req.user.id);
+  }
+
+  @Get('google')
+  @UseGuards(AuthGuard('google'))
+  async googleAuth() {
+    // Passport redirects to Google — no body needed
+  }
+
+  @Get('google/callback')
+  @UseGuards(AuthGuard('google'))
+  async googleCallback(@Request() req: any, @Res() res: any) {
+    const result = await this.authService.googleLogin(req.user);
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL');
+    const params = new URLSearchParams({
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      role: result.user.role,
+    });
+    res.redirect(`${frontendUrl}/auth/callback?${params.toString()}`);
   }
 
   // GET /api/auth/me — returns full user from DB including fullName

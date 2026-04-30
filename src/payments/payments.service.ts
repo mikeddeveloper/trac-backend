@@ -26,6 +26,7 @@ export class PaymentsService {
   private readonly TRANSPORTER_SHARE = 0.90;
   private readonly CASHBACK_RATE     = 0.015;
   private readonly CASHBACK_MIN      = 10_000;
+  private readonly VAT_RATE          = 0.075;
 
   constructor(
     private configService: ConfigService,
@@ -50,14 +51,16 @@ export class PaymentsService {
     metadata: Record<string, any> = {},
     currency: string = 'NGN',
   ) {
-    const reference = `TRAC-${jobId}-${Date.now()}`;
+    const reference    = `TRAC-${jobId}-${Date.now()}`;
+    const vatAmount    = +(amount * this.VAT_RATE).toFixed(2);
+    const totalCharged = +(amount + vatAmount).toFixed(2);
 
     try {
       const response = await axios.post(
         `${this.paystackUrl}/transaction/initialize`,
         {
           email,
-          amount: Math.round(amount * 100),
+          amount: Math.round(totalCharged * 100),
           reference,
           callback_url: `${this.configService.get('FRONTEND_URL') || 'https://trac-logistics-web-app.vercel.app'}/dashboard/payments`,
           metadata: { jobId, ...metadata },
@@ -80,10 +83,11 @@ export class PaymentsService {
         tracCommission: breakdown.tracCommission,
         transporterPayout: breakdown.transporterPayout,
         customerCashback: breakdown.customerCashback,
+        vatAmount,
       });
       await this.paymentRepo.save(payment);
 
-      return { authorizationUrl: authorization_url, reference, accessCode: access_code };
+      return { authorizationUrl: authorization_url, reference, accessCode: access_code, vatAmount, totalCharged };
     } catch (error) {
       this.logger.error('initializePayment error', error?.response?.data || error.message);
       throw new BadRequestException('Payment initialization failed');
