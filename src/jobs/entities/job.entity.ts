@@ -79,6 +79,19 @@ export class Job {
   @Column({ nullable: true, type: 'timestamp' })
   proofUploadedAt: Date;
 
+  // ─── Goods Declaration ────────────────────────────────────────────────────
+  @Column({ nullable: true })
+  goodsCategory: string;
+
+  @Column({ default: false })
+  goodsDeclared: boolean;
+
+  @Column({ default: false })
+  disclaimerAccepted: boolean;
+
+  @Column({ nullable: true, type: 'timestamp' })
+  disclaimerAcceptedAt: Date;
+
   // ─── Relations ────────────────────────────────────────────────────────────
   @ManyToOne(() => User, { eager: true })
   @JoinColumn({ name: 'customerId' })
