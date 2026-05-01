@@ -24,92 +24,92 @@ export enum JobStatus {
 @Entity('jobs')
 export class Job {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column()
-  pickupAddress: string;
+  pickupAddress!: string;
 
   @Column()
-  pickupState: string;
+  pickupState!: string;
 
   @Column()
-  deliveryAddress: string;
+  deliveryAddress!: string;
 
   @Column()
-  deliveryState: string;
+  deliveryState!: string;
 
   @Column()
-  cargoDescription: string;
+  cargoDescription!: string;
 
   @Column({ type: 'decimal', precision: 10, scale: 2 })
-  cargoWeight: number;
+  cargoWeight!: number;
 
   @Column({ type: 'decimal', precision: 15, scale: 2 })
-  cargoValue: number;
+  cargoValue!: number;
 
   @Column()
-  vehicleType: string;
+  vehicleType!: string;
 
   @Column({ type: 'timestamp' })
-  deadline: Date;
+  deadline!: Date;
 
   @Column({ nullable: true })
-  specialInstructions: string;
+  specialInstructions!: string;
 
   @Column({ default: 'basic' })
-  insurance: string;
+  insurance!: string;
 
   @Column({ type: 'enum', enum: JobStatus, default: JobStatus.BIDDING })
-  status: JobStatus;
+  status!: JobStatus;
 
   @Column({ nullable: true, type: 'decimal', precision: 15, scale: 2 })
-  acceptedAmount: number;
+  acceptedAmount!: number;
 
   // ─── Day 15: Status timestamps ────────────────────────────────────────────
   @Column({ nullable: true, type: 'timestamp' })
-  pickedUpAt: Date;
+  pickedUpAt!: Date;
 
   @Column({ nullable: true, type: 'timestamp' })
-  deliveredAt: Date;
+  deliveredAt!: Date;
 
   // ─── Day 16: Proof of Delivery ────────────────────────────────────────────
   @Column({ nullable: true })
-  proofOfDeliveryUrl: string;
+  proofOfDeliveryUrl!: string;
 
   @Column({ nullable: true, type: 'timestamp' })
-  proofUploadedAt: Date;
+  proofUploadedAt!: Date;
 
   // ─── Goods Declaration ────────────────────────────────────────────────────
   @Column({ nullable: true })
-  goodsCategory: string;
+  goodsCategory!: string;
 
   @Column({ default: false })
-  goodsDeclared: boolean;
+  goodsDeclared!: boolean;
 
   @Column({ default: false })
-  disclaimerAccepted: boolean;
+  disclaimerAccepted!: boolean;
 
   @Column({ nullable: true, type: 'timestamp' })
-  disclaimerAcceptedAt: Date;
+  disclaimerAcceptedAt!: Date;
 
   // ─── Relations ────────────────────────────────────────────────────────────
   @ManyToOne(() => User, { eager: true })
   @JoinColumn({ name: 'customerId' })
-  customer: User;
+  customer!: User;
 
   @Column()
-  customerId: string;
+  customerId!: string;
 
   @ManyToOne(() => User, { nullable: true, eager: true })
   @JoinColumn({ name: 'transporterId' })
-  transporter: User;
+  transporter!: User;
 
   @Column({ nullable: true })
-  transporterId: string;
+  transporterId!: string;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }
