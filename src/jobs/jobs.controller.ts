@@ -1,5 +1,6 @@
 // trac-backend/src/jobs/jobs.controller.ts
 // Day 16: Added POST /jobs/:id/proof endpoint
+/// <reference types="multer" />
 
 import {
   Controller,
