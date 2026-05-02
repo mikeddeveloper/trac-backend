@@ -166,6 +166,10 @@ export class JobsService {
       throw new BadRequestException('Please upload proof of delivery photo before marking as delivered');
     }
 
+    if (newStatus === JobStatus.DELIVERED && !job.otpVerified) {
+      throw new BadRequestException('Please verify delivery PIN before marking as delivered');
+    }
+
     const previousStatus = job.status;
     const route = `${job.pickupState} → ${job.deliveryState}`;
 
@@ -212,6 +216,60 @@ export class JobsService {
     }
 
     return updatedJob;
+  }
+
+  // ─── Generate Delivery OTP ────────────────────────────────────────────────
+
+  async generateDeliveryOtp(jobId: string, transporterId: string): Promise<{ otp: string; message: string }> {
+    const job = await this.getJobById(jobId);
+
+    if (job.transporterId !== transporterId) {
+      throw new ForbiddenException('You are not assigned to this job');
+    }
+    if (job.status !== JobStatus.IN_TRANSIT) {
+      throw new BadRequestException('Job must be in-transit to generate PIN');
+    }
+
+    const pin = Math.floor(1000 + Math.random() * 9000).toString();
+
+    await this.jobRepo.update(jobId, { deliveryOtp: pin, otpGeneratedAt: new Date() });
+
+    if (job.customerId) {
+      this.eventsGateway.notifyUser(job.customerId, 'otp:generated', {
+        jobId,
+        otp: pin,
+        message: 'Your delivery PIN is ready. Share with driver after receiving goods.',
+      });
+    }
+
+    return { otp: pin, message: 'PIN generated successfully' };
+  }
+
+  // ─── Verify Delivery OTP ──────────────────────────────────────────────────
+
+  async verifyDeliveryOtp(jobId: string, transporterId: string, otp: string): Promise<{ verified: boolean; message: string }> {
+    const job = await this.getJobById(jobId);
+
+    if (job.transporterId !== transporterId) {
+      throw new ForbiddenException('You are not assigned to this job');
+    }
+    if (job.status !== JobStatus.IN_TRANSIT) {
+      throw new BadRequestException('Job must be in-transit to verify PIN');
+    }
+    if (otp !== job.deliveryOtp) {
+      throw new BadRequestException('Invalid PIN. Please try again.');
+    }
+
+    await this.jobRepo.update(jobId, { otpVerified: true });
+
+    if (job.customerId) {
+      this.eventsGateway.notifyUser(job.customerId, 'otp:verified', {
+        jobId,
+        message: 'Delivery PIN verified. Goods confirmed received.',
+      });
+    }
+
+    return { verified: true, message: 'PIN verified successfully' };
   }
 
   // ─── Upload Proof of Delivery ─────────────────────────────────────────────

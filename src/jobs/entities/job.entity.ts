@@ -79,6 +79,16 @@ export class Job {
   @Column({ nullable: true, type: 'timestamp' })
   proofUploadedAt!: Date;
 
+  // ─── Delivery OTP ─────────────────────────────────────────────────────────
+  @Column({ nullable: true })
+  deliveryOtp!: string;
+
+  @Column({ nullable: true, type: 'timestamp' })
+  otpGeneratedAt!: Date;
+
+  @Column({ default: false })
+  otpVerified!: boolean;
+
   // ─── Goods Declaration ────────────────────────────────────────────────────
   @Column({ nullable: true })
   goodsCategory!: string;

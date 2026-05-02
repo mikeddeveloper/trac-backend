@@ -74,6 +74,22 @@ export class JobsController {
     );
   }
 
+  // ─── POST /jobs/:id/generate-otp ──────────────────────────────────────────
+  @Post(':id/generate-otp')
+  async generateOtp(@Param('id') id: string, @Req() req: any) {
+    return this.jobsService.generateDeliveryOtp(id, req.user.id);
+  }
+
+  // ─── POST /jobs/:id/verify-otp ────────────────────────────────────────────
+  @Post(':id/verify-otp')
+  async verifyOtp(
+    @Param('id') id: string,
+    @Req() req: any,
+    @Body() body: { otp: string },
+  ) {
+    return this.jobsService.verifyDeliveryOtp(id, req.user.id, body.otp);
+  }
+
   // ─── POST /jobs/:id/proof ──────────────────────────────────────────────────
   // Day 16: Transporter uploads proof of delivery photo
   // Accepts multipart/form-data with field name "proof"
