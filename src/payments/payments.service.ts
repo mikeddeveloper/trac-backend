@@ -11,7 +11,6 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
-import { PushService } from '../push/push.service';
 import axios from 'axios';
 import * as crypto from 'crypto';
 import { Payment, PaymentStatus, PaymentType } from './entities/payment.entity';
@@ -89,7 +88,7 @@ export class PaymentsService {
 
       return { authorizationUrl: authorization_url, reference, accessCode: access_code, vatAmount, totalCharged };
     } catch (error) {
-      this.logger.error('initializePayment error', error?.response?.data || error.message);
+      this.logger.error('initializePayment error', (error as any)?.response?.data || (error as any)?.message);
       throw new BadRequestException('Payment initialization failed');
     }
   }
@@ -123,7 +122,7 @@ export class PaymentsService {
         metadata: data.metadata,
       };
     } catch (error) {
-      this.logger.error('verifyPayment error', error?.response?.data || error.message);
+      this.logger.error('verifyPayment error', (error as any)?.response?.data || (error as any)?.message);
       throw new BadRequestException('Payment verification failed');
     }
   }
@@ -198,6 +197,16 @@ export class PaymentsService {
         message: `Payment of ₦${Number(payment.amount).toLocaleString()} confirmed and held in escrow`,
       });
     }
+
+    const job = await this.paymentRepo.manager.findOne('Job', { where: { id: payment.jobId } }) as any;
+    if (job?.transporterId) {
+      this.eventsGateway.notifyUser(job.transporterId, 'payment:confirmed:transporter', {
+        jobId: payment.jobId,
+        amount: payment.amount,
+        message: `Customer has paid ₦${Number(payment.amount).toLocaleString()}. Proceed to pickup!`,
+        reference: payment.reference,
+      });
+    }
   }
 
   private async handleTransferSuccess(data: any): Promise<void> {
@@ -228,7 +237,7 @@ export class PaymentsService {
       );
       return response.data.data.recipient_code;
     } catch (error) {
-      this.logger.error('createRecipient error', error?.response?.data);
+      this.logger.error('createRecipient error', (error as any)?.response?.data);
       throw new BadRequestException('Failed to create transfer recipient');
     }
   }
@@ -262,7 +271,7 @@ export class PaymentsService {
 
     try {
       // Initiate Paystack transfer
-      const response = await axios.post(
+      await axios.post(
         `${this.paystackUrl}/transfer`,
         {
           source: 'balance',
@@ -297,7 +306,7 @@ export class PaymentsService {
 
       return releasePayment;
     } catch (error) {
-      this.logger.error('releaseEscrow error', error?.response?.data || error.message);
+      this.logger.error('releaseEscrow error', (error as any)?.response?.data || (error as any)?.message);
       // Don't throw — log and notify admin instead
       // In test mode Paystack transfer requires funded balance
       this.logger.warn('Transfer failed — likely insufficient Paystack balance in test mode');
