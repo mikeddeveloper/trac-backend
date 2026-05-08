@@ -29,7 +29,7 @@ export class EventsGateway
   implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
 {
   @WebSocketServer()
-  server: Server;
+  server!: Server;
 
   private readonly logger = new Logger(EventsGateway.name);
   private userSocketMap = new Map<string, string>();
@@ -76,7 +76,7 @@ export class EventsGateway
         this.pendingNotifications.delete(userId);
       }
     } catch (err) {
-      this.logger.warn(`Socket auth failed: ${err.message}`);
+      this.logger.warn(`Socket auth failed: ${(err as any).message}`);
       client.disconnect();
     }
   }
