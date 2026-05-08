@@ -200,6 +200,14 @@ export class JobsService {
       });
     }
 
+    // ── Delivered event ──
+    if (newStatus === JobStatus.DELIVERED && updatedJob.customerId) {
+      this.eventsGateway.notifyUser(updatedJob.customerId, 'job:delivered', {
+        jobId,
+        message: 'Your delivery has been confirmed. Payment will be released to transporter.',
+      });
+    }
+
     // ── Push notifications ──
     if (newStatus === JobStatus.IN_TRANSIT && updatedJob.customerId) {
       await this.pushService.sendToUser(
@@ -238,9 +246,15 @@ export class JobsService {
       this.eventsGateway.notifyUser(job.customerId, 'otp:generated', {
         jobId,
         otp: pin,
-        message: 'Your delivery PIN is ready. Share with driver after receiving goods.',
+        message: 'Your delivery PIN is ready. Share with driver AFTER receiving goods.',
       });
     }
+
+    this.eventsGateway.notifyUser(transporterId, 'otp:generated:transporter', {
+      jobId,
+      otp: pin,
+      message: 'PIN generated successfully. Ask customer for this PIN.',
+    });
 
     return { otp: pin, message: 'PIN generated successfully' };
   }
@@ -265,7 +279,7 @@ export class JobsService {
     if (job.customerId) {
       this.eventsGateway.notifyUser(job.customerId, 'otp:verified', {
         jobId,
-        message: 'Delivery PIN verified. Goods confirmed received.',
+        message: 'Delivery PIN verified. Your goods have been confirmed received.',
       });
     }
 
