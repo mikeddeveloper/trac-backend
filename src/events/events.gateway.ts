@@ -35,6 +35,7 @@ export class EventsGateway
   private userSocketMap = new Map<string, string>();
   private socketUserMap = new Map<string, string>();
   private jobLocationMap = new Map<string, { lat: number; lng: number; updatedAt: Date }>();
+  private pendingNotifications = new Map<string, Array<{ event: string; data: any }>>();
 
   constructor(
     private jwtService: JwtService,
@@ -65,6 +66,15 @@ export class EventsGateway
 
       this.logger.log(`✅ User ${userId} connected via socket ${client.id}`);
       client.emit('connected', { message: 'Socket connected', userId });
+
+      const pending = this.pendingNotifications.get(userId);
+      if (pending && pending.length > 0) {
+        pending.forEach(({ event, data }) => {
+          client.emit(event, data);
+          this.logger.log(`📨 Delivered queued '${event}' to ${userId}`);
+        });
+        this.pendingNotifications.delete(userId);
+      }
     } catch (err) {
       this.logger.warn(`Socket auth failed: ${err.message}`);
       client.disconnect();
@@ -88,7 +98,10 @@ export class EventsGateway
       this.server.to(socketId).emit(event, data);
       this.logger.log(`📡 Emitted '${event}' to user ${userId}`);
     } else {
-      this.logger.log(`User ${userId} not connected — skipped`);
+      const existing = this.pendingNotifications.get(userId) || [];
+      existing.push({ event, data });
+      this.pendingNotifications.set(userId, existing);
+      this.logger.log(`📬 Queued '${event}' for user ${userId} (not connected)`);
     }
   }
 
