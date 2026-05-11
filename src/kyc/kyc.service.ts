@@ -157,8 +157,12 @@ export class KycService {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) throw new Error('User not found');
 
+    const KYC_CUTOFF_DATE = new Date('2026-05-11T00:00:00.000Z');
+    const userCreatedAt   = new Date(user.createdAt);
+    const requiresKyc     = userCreatedAt > KYC_CUTOFF_DATE;
+
     const monthsOld = Math.floor(
-      (Date.now() - new Date(user.createdAt).getTime()) / (1000 * 60 * 60 * 24 * 30)
+      (Date.now() - userCreatedAt.getTime()) / (1000 * 60 * 60 * 24 * 30)
     );
 
     return {
@@ -170,6 +174,7 @@ export class KycService {
       kycTier:         user.kycTier || 0,
       kycCompletedAt:  user.kycCompletedAt || null,
       monthsOld,
+      requiresKyc,
       requiresTier1:   user.role === 'customer' && monthsOld >= 6 && !user.ninVerified,
     };
   }

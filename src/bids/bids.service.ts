@@ -27,7 +27,12 @@ export class BidsService {
 
   async placeBid(transporterId: string, jobId: string, amount: number, note?: string): Promise<Bid> {
     const transporter = await this.usersService.findById(transporterId);
-    if (!transporter.isVerified) {
+
+    const KYC_CUTOFF_DATE = new Date('2026-05-11T00:00:00.000Z');
+    const userCreatedAt   = new Date((transporter as any).createdAt);
+    const requiresKyc     = userCreatedAt > KYC_CUTOFF_DATE;
+
+    if (requiresKyc && !transporter.isVerified) {
       throw new ForbiddenException('Complete your KYC verification to start bidding on jobs.');
     }
 
