@@ -15,65 +15,87 @@ export enum UserRole {
 @Entity('users')
 export class User {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column()
-  fullName: string;
+  fullName!: string;
 
   @Column({ unique: true })
-  email: string;
+  email!: string;
 
   @Column({ nullable: true })
-  phone: string;
+  phone!: string;
 
   @Column({ select: false, nullable: true })
-  password: string;
+  password!: string;
 
   @Column({ nullable: true })
-  googleId: string;
+  googleId!: string;
 
   @Column({ type: 'enum', enum: UserRole, default: UserRole.CUSTOMER })
-  role: UserRole;
+  role!: UserRole;
 
   @Column({ default: false })
-  isVerified: boolean;
+  isVerified!: boolean;
 
   @Column({ nullable: true })
-  state: string;
+  state!: string;
 
   @Column({ nullable: true })
-  vehicleType: string;
+  vehicleType!: string;
 
   @Column({ nullable: true })
-  licenseNumber: string;
+  licenseNumber!: string;
 
   @Column({ nullable: true })
-  companyName: string;
+  companyName!: string;
 
   @Column({ nullable: true })
-  rcNumber: string;
+  rcNumber!: string;
 
   @Column({ nullable: true })
-  avatarUrl: string;
+  avatarUrl!: string;
 
   @Column({ nullable: true })
-  bio: string;
+  bio!: string;
 
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
-  rating: number;
+  rating!: number;
 
   @Column({ default: 0 })
-  totalRatings: number;
+  totalRatings!: number;
 
   @Column({ default: 0 })
-  tripsCompleted: number;
+  tripsCompleted!: number;
 
   @Column({ nullable: true })
-  refreshToken: string;
+  refreshToken!: string;
+
+  // ─── KYC ──────────────────────────────────────────────────────────────────
+  @Column({ default: false })
+  ninVerified!: boolean;
+
+  @Column({ default: false })
+  licenseVerified!: boolean;
+
+  @Column({ nullable: true })
+  kycStatus!: string;
+
+  @Column({ default: 0 })
+  kycTier!: number;
+
+  @Column({ nullable: true, type: 'timestamp' })
+  kycCompletedAt!: Date;
+
+  @Column({ nullable: true })
+  vehiclePlate!: string;
+
+  @Column({ nullable: true })
+  vehicleYear!: string;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }

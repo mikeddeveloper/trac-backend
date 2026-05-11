@@ -12,6 +12,7 @@ import { JobsService } from '../jobs/jobs.service';
 import { JobStatus } from '../jobs/entities/job.entity';
 import { PushService } from '../push/push.service';
 import { EventsGateway } from '../events/events.gateway';
+import { UsersService } from '../users/users.service';
 
 @Injectable()
 export class BidsService {
@@ -21,9 +22,15 @@ export class BidsService {
     private jobsService: JobsService,
     private pushService: PushService,
     private eventsGateway: EventsGateway,
+    private usersService: UsersService,
   ) {}
 
   async placeBid(transporterId: string, jobId: string, amount: number, note?: string): Promise<Bid> {
+    const transporter = await this.usersService.findById(transporterId);
+    if (!transporter.isVerified) {
+      throw new ForbiddenException('Complete your KYC verification to start bidding on jobs.');
+    }
+
     const job = await this.jobsService.findById(jobId);
     if (job.status !== JobStatus.BIDDING) {
       throw new BadRequestException('This job is no longer accepting bids');

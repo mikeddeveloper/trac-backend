@@ -14,6 +14,7 @@ import { RatingsModule } from './ratings/ratings.module';
 import { DisputesModule } from './disputes/disputes.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AdminModule } from './admin/admin.module';
+import { KycModule } from './kyc/kyc.module';
 
 import { PushModule } from './push/push.module';
 import { WaybillModule } from './waybill/waybill.module';
@@ -54,10 +55,7 @@ import { PushSubscription } from './push/entities/push-subscription.entity';
     PushModule,
     WaybillModule,
     CallingModule,
-    AdminModule,
-    PushModule,
-    WaybillModule,
-    CallingModule,
+    KycModule,
   ],
 })
 export class AppModule {}
