@@ -19,14 +19,15 @@ export class KycController {
     dateOfBirth: string;
     firstName: string;
     lastName: string;
+    selfieBase64?: string;
   }) {
     if (req.user.role === 'customer') {
       return this.kycService.verifyCustomerNIN(
-        req.user.id, body.nin, body.dateOfBirth, body.firstName, body.lastName
+        req.user.id, body.nin, body.dateOfBirth, body.firstName, body.lastName, body.selfieBase64
       );
     }
     return this.kycService.verifyNIN(
-      req.user.id, body.nin, body.dateOfBirth, body.firstName, body.lastName
+      req.user.id, body.nin, body.dateOfBirth, body.firstName, body.lastName, body.selfieBase64
     );
   }
 
@@ -37,9 +38,10 @@ export class KycController {
     dateOfBirth: string;
     firstName: string;
     lastName: string;
+    selfieBase64?: string;
   }) {
     return this.kycService.verifyDriversLicense(
-      req.user.id, body.licenseNumber, body.dateOfBirth, body.firstName, body.lastName
+      req.user.id, body.licenseNumber, body.dateOfBirth, body.firstName, body.lastName, body.selfieBase64
     );
   }
 

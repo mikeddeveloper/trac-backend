@@ -26,17 +26,26 @@ export class KycService {
     };
   }
 
-  async verifyNIN(userId: string, nin: string, dateOfBirth: string, firstName: string, lastName: string) {
+  async verifyNIN(userId: string, nin: string, dateOfBirth: string, firstName: string, lastName: string, selfieBase64?: string) {
     this.logger.log(`Verifying NIN for user ${userId}`);
     try {
-      const response = await axios.post(
-        `${this.premblyUrl}/nin_wo_face`,
-        { nin, dateofbirth: dateOfBirth, firstname: firstName, lastname: lastName },
-        { headers: this.headers }
-      );
+      const body: any = { nin, dateofbirth: dateOfBirth, firstname: firstName, lastname: lastName };
 
-      const verified = response.data?.verification?.status === 'VERIFIED' ||
-                       response.data?.status === true;
+      if (selfieBase64) {
+        body.image        = selfieBase64;
+        body.selfie_image = selfieBase64;
+      }
+
+      const endpoint = selfieBase64
+        ? `${this.premblyUrl}/nin`
+        : `${this.premblyUrl}/nin_wo_face`;
+
+      const response = await axios.post(endpoint, body, { headers: this.headers });
+
+      const verified =
+        response.data?.verification?.status === 'VERIFIED' ||
+        response.data?.face_data?.selfie_verified === true ||
+        response.data?.status === true;
 
       if (verified) {
         await this.userRepo.update(userId, {
@@ -48,34 +57,42 @@ export class KycService {
 
       return {
         verified,
-        message: verified ? 'NIN verified successfully' : 'NIN verification failed. Check your details.',
-        data: response.data,
+        faceMatch: response.data?.face_data?.selfie_verified || false,
+        message: verified ? 'NIN verified successfully' : 'Verification failed. Check your details and try again.',
       };
     } catch (error: any) {
       this.logger.error('NIN verification error:', error?.response?.data || error.message);
       return {
         verified: false,
+        faceMatch: false,
         message: error?.response?.data?.detail || 'NIN verification failed. Please try again.',
       };
     }
   }
 
-  async verifyDriversLicense(userId: string, licenseNumber: string, dateOfBirth: string, firstName: string, lastName: string) {
+  async verifyDriversLicense(userId: string, licenseNumber: string, dateOfBirth: string, firstName: string, lastName: string, selfieBase64?: string) {
     this.logger.log(`Verifying license for user ${userId}`);
     try {
+      const body: any = {
+        license_number: licenseNumber,
+        dob: dateOfBirth,
+        firstname: firstName,
+        lastname: lastName,
+      };
+
+      if (selfieBase64) {
+        body.image = selfieBase64;
+      }
+
       const response = await axios.post(
         `${this.premblyUrl}/drivers_license`,
-        {
-          license_number: licenseNumber,
-          dob: dateOfBirth,
-          firstname: firstName,
-          lastname: lastName,
-        },
+        body,
         { headers: this.headers }
       );
 
-      const verified = response.data?.verification?.status === 'VERIFIED' ||
-                       response.data?.status === true;
+      const verified =
+        response.data?.verification?.status === 'VERIFIED' ||
+        response.data?.status === true;
 
       if (verified) {
         await this.userRepo.update(userId, {
@@ -88,7 +105,6 @@ export class KycService {
       return {
         verified,
         message: verified ? 'License verified successfully' : 'License verification failed. Check your details.',
-        data: response.data,
       };
     } catch (error: any) {
       this.logger.error('License verification error:', error?.response?.data || error.message);
@@ -134,8 +150,8 @@ export class KycService {
     };
   }
 
-  async verifyCustomerNIN(userId: string, nin: string, dateOfBirth: string, firstName: string, lastName: string) {
-    const result = await this.verifyNIN(userId, nin, dateOfBirth, firstName, lastName);
+  async verifyCustomerNIN(userId: string, nin: string, dateOfBirth: string, firstName: string, lastName: string, selfieBase64?: string) {
+    const result = await this.verifyNIN(userId, nin, dateOfBirth, firstName, lastName, selfieBase64);
     if (result.verified) {
       await this.userRepo.update(userId, {
         kycStatus: 'approved',
@@ -146,7 +162,7 @@ export class KycService {
 
       await this.pushService.sendToUser(userId, {
         title: '✅ Identity Verified!',
-        body: 'Your account is now Tier 1 verified. Enjoy full platform access.',
+        body: 'Your account is now Tier 1 verified.',
         icon: '/icon-192.png',
       }).catch(() => {});
     }
