@@ -9,7 +9,7 @@ import axios from 'axios';
 @Injectable()
 export class KycService {
   private readonly logger = new Logger(KycService.name);
-  private readonly premblyUrl = 'https://api.prembly.com/api/identitypass/verification';
+  private readonly diditUrl = 'https://verification.didit.me';
 
   constructor(
     private configService: ConfigService,
@@ -20,166 +20,103 @@ export class KycService {
 
   private get headers() {
     return {
-      'x-api-key': this.configService.get('PREMBLY_API_KEY'),
-      'app-id': this.configService.get('PREMBLY_APP_ID'),
+      'Authorization': `Bearer ${this.configService.get('DIDIT_API_KEY')}`,
       'Content-Type': 'application/json',
     };
   }
 
-  async verifyNIN(userId: string, nin: string, dateOfBirth: string, firstName: string, lastName: string, selfieBase64?: string) {
-    this.logger.log(`Verifying NIN for user ${userId}`);
+  async createVerificationSession(userId: string, userEmail: string, userName: string) {
     try {
-      const body: any = { nin, dateofbirth: dateOfBirth, firstname: firstName, lastname: lastName };
-
-      if (selfieBase64) {
-        body.image        = selfieBase64;
-        body.selfie_image = selfieBase64;
-      }
-
-      const endpoint = selfieBase64
-        ? `${this.premblyUrl}/nin`
-        : `${this.premblyUrl}/nin_wo_face`;
-
-      const response = await axios.post(endpoint, body, { headers: this.headers });
-
-      const verified =
-        response.data?.verification?.status === 'VERIFIED' ||
-        response.data?.face_data?.selfie_verified === true ||
-        response.data?.status === true;
-
-      if (verified) {
-        await this.userRepo.update(userId, {
-          ninVerified: true,
-          kycStatus: 'nin_verified',
-        } as any);
-        this.logger.log(`✅ NIN verified for user ${userId}`);
-      }
-
-      return {
-        verified,
-        faceMatch: response.data?.face_data?.selfie_verified || false,
-        message: verified ? 'NIN verified successfully' : 'Verification failed. Check your details and try again.',
-      };
-    } catch (error: any) {
-      this.logger.error('NIN verification error:', error?.response?.data || error.message);
-      return {
-        verified: false,
-        faceMatch: false,
-        message: error?.response?.data?.detail || 'NIN verification failed. Please try again.',
-      };
-    }
-  }
-
-  async verifyDriversLicense(userId: string, licenseNumber: string, dateOfBirth: string, firstName: string, lastName: string, selfieBase64?: string) {
-    this.logger.log(`Verifying license for user ${userId}`);
-    try {
-      const body: any = {
-        license_number: licenseNumber,
-        dob: dateOfBirth,
-        firstname: firstName,
-        lastname: lastName,
-      };
-
-      if (selfieBase64) {
-        body.image = selfieBase64;
-      }
-
       const response = await axios.post(
-        `${this.premblyUrl}/drivers_license`,
-        body,
+        `${this.diditUrl}/v1/session/`,
+        {
+          callback: `${this.configService.get('BACKEND_URL')}/api/kyc/webhook`,
+          redirect_url: `${this.configService.get('FRONTEND_URL')}/dashboard/kyc/complete`,
+          features: 'documentary_liveness',
+          vendor_data: userId,
+        },
         { headers: this.headers }
       );
 
-      const verified =
-        response.data?.verification?.status === 'VERIFIED' ||
-        response.data?.status === true;
-
-      if (verified) {
-        await this.userRepo.update(userId, {
-          licenseVerified: true,
-          kycStatus: 'license_verified',
-        } as any);
-        this.logger.log(`✅ License verified for user ${userId}`);
-      }
+      const session = response.data;
+      this.logger.log(`✅ Didit session created for user ${userId}: ${session.session_id}`);
 
       return {
-        verified,
-        message: verified ? 'License verified successfully' : 'License verification failed. Check your details.',
+        sessionId: session.session_id,
+        verificationUrl: session.url,
+        status: session.status,
       };
     } catch (error: any) {
-      this.logger.error('License verification error:', error?.response?.data || error.message);
-      return {
-        verified: false,
-        message: error?.response?.data?.detail || 'License verification failed. Please try again.',
-      };
+      this.logger.error('Didit session error:', error?.response?.data || error.message);
+      throw new Error('Failed to create verification session');
     }
   }
 
-  async completeDriverKYC(userId: string, vehiclePlate: string, vehicleYear: string) {
-    const user = await this.userRepo.findOne({ where: { id: userId } });
-    if (!user) throw new Error('User not found');
+  async handleWebhook(payload: any) {
+    this.logger.log(`📩 Didit webhook: ${JSON.stringify(payload)}`);
 
-    const ninOk     = user.ninVerified;
-    const licenseOk = user.licenseVerified;
+    const { status, vendor_data } = payload;
+    const userId = vendor_data;
 
-    if (ninOk && licenseOk) {
+    if (!userId) return { received: true };
+
+    if (status === 'Approved') {
       await this.userRepo.update(userId, {
         isVerified: true,
+        ninVerified: true,
+        licenseVerified: true,
         kycStatus: 'approved',
-        kycCompletedAt: new Date(),
-        vehiclePlate,
-        vehicleYear,
         kycTier: 1,
+        kycCompletedAt: new Date(),
       } as any);
 
       await this.pushService.sendToUser(userId, {
         title: '✅ Account Verified!',
-        body: 'Congratulations! Your account is now verified. You can start bidding on jobs.',
+        body: 'Congratulations! Your identity has been verified. You can now bid on jobs.',
         icon: '/icon-192.png',
       }).catch(() => {});
 
-      this.logger.log(`🎉 Driver KYC complete for user ${userId}`);
-      return { completed: true, message: 'KYC completed. You can now bid on jobs!' };
-    }
-
-    return {
-      completed: false,
-      message: 'Please complete both NIN and License verification first.',
-      ninVerified: ninOk,
-      licenseVerified: licenseOk,
-    };
-  }
-
-  async verifyCustomerNIN(userId: string, nin: string, dateOfBirth: string, firstName: string, lastName: string, selfieBase64?: string) {
-    const result = await this.verifyNIN(userId, nin, dateOfBirth, firstName, lastName, selfieBase64);
-    if (result.verified) {
+      this.logger.log(`🎉 User ${userId} verified via Didit`);
+    } else if (status === 'Declined') {
       await this.userRepo.update(userId, {
-        kycStatus: 'approved',
-        kycTier: 1,
-        isVerified: true,
-        kycCompletedAt: new Date(),
+        kycStatus: 'rejected',
       } as any);
 
       await this.pushService.sendToUser(userId, {
-        title: '✅ Identity Verified!',
-        body: 'Your account is now Tier 1 verified.',
+        title: '❌ Verification Failed',
+        body: 'Your identity verification was unsuccessful. Please try again.',
         icon: '/icon-192.png',
       }).catch(() => {});
+
+      this.logger.log(`❌ User ${userId} verification declined`);
     }
-    return result;
+
+    return { received: true };
+  }
+
+  async getSessionStatus(sessionId: string) {
+    try {
+      const response = await axios.get(
+        `${this.diditUrl}/v1/session/${sessionId}/`,
+        { headers: this.headers }
+      );
+      return response.data;
+    } catch (error: any) {
+      this.logger.error('Get session error:', error?.response?.data);
+      throw new Error('Failed to get session status');
+    }
   }
 
   async getKycStatus(userId: string) {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) throw new Error('User not found');
 
-    const KYC_CUTOFF_DATE = new Date('2026-05-11T00:00:00.000Z');
-    const userCreatedAt   = new Date(user.createdAt);
-    const requiresKyc     = userCreatedAt > KYC_CUTOFF_DATE;
-
     const monthsOld = Math.floor(
-      (Date.now() - userCreatedAt.getTime()) / (1000 * 60 * 60 * 24 * 30)
+      (Date.now() - new Date(user.createdAt).getTime()) / (1000 * 60 * 60 * 24 * 30)
     );
+
+    const KYC_CUTOFF_DATE = new Date('2026-05-11T00:00:00.000Z');
+    const requiresKyc = new Date(user.createdAt) > KYC_CUTOFF_DATE;
 
     return {
       role:            user.role,
@@ -193,5 +130,9 @@ export class KycService {
       requiresKyc,
       requiresTier1:   user.role === 'customer' && monthsOld >= 6 && !user.ninVerified,
     };
+  }
+
+  async verifyCustomerNIN(userId: string) {
+    return this.createVerificationSession(userId, '', '');
   }
 }

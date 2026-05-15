@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Request, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, Request, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { KycService } from './kyc.service';
 
@@ -12,47 +12,24 @@ export class KycController {
     return this.kycService.getKycStatus(req.user.id);
   }
 
-  @Post('verify-nin')
+  @Post('create-session')
   @UseGuards(AuthGuard('jwt'))
-  async verifyNIN(@Request() req: any, @Body() body: {
-    nin: string;
-    dateOfBirth: string;
-    firstName: string;
-    lastName: string;
-    selfieBase64?: string;
-  }) {
-    if (req.user.role === 'customer') {
-      return this.kycService.verifyCustomerNIN(
-        req.user.id, body.nin, body.dateOfBirth, body.firstName, body.lastName, body.selfieBase64
-      );
-    }
-    return this.kycService.verifyNIN(
-      req.user.id, body.nin, body.dateOfBirth, body.firstName, body.lastName, body.selfieBase64
+  async createSession(@Request() req: any) {
+    return this.kycService.createVerificationSession(
+      req.user.id,
+      req.user.email,
+      req.user.fullName || '',
     );
   }
 
-  @Post('verify-license')
-  @UseGuards(AuthGuard('jwt'))
-  async verifyLicense(@Request() req: any, @Body() body: {
-    licenseNumber: string;
-    dateOfBirth: string;
-    firstName: string;
-    lastName: string;
-    selfieBase64?: string;
-  }) {
-    return this.kycService.verifyDriversLicense(
-      req.user.id, body.licenseNumber, body.dateOfBirth, body.firstName, body.lastName, body.selfieBase64
-    );
+  @Post('webhook')
+  async handleWebhook(@Body() payload: any) {
+    return this.kycService.handleWebhook(payload);
   }
 
-  @Post('complete-driver-kyc')
+  @Get('session/:sessionId')
   @UseGuards(AuthGuard('jwt'))
-  async completeDriverKYC(@Request() req: any, @Body() body: {
-    vehiclePlate: string;
-    vehicleYear: string;
-  }) {
-    return this.kycService.completeDriverKYC(
-      req.user.id, body.vehiclePlate, body.vehicleYear
-    );
+  async getSession(@Param('sessionId') sessionId: string) {
+    return this.kycService.getSessionStatus(sessionId);
   }
 }
