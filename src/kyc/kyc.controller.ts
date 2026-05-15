@@ -1,4 +1,7 @@
-import { Controller, Post, Get, Body, Param, Request, UseGuards } from '@nestjs/common';
+import {
+  Controller, Post, Get, Body, Param,
+  Request, UseGuards,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { KycService } from './kyc.service';
 
@@ -15,11 +18,7 @@ export class KycController {
   @Post('create-session')
   @UseGuards(AuthGuard('jwt'))
   async createSession(@Request() req: any) {
-    return this.kycService.createVerificationSession(
-      req.user.id,
-      req.user.email,
-      req.user.fullName || '',
-    );
+    return this.kycService.createVerificationSession(req.user.id);
   }
 
   @Post('webhook')
