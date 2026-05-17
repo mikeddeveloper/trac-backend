@@ -10,6 +10,7 @@ import { Dispute, DisputeStatus } from '../disputes/entities/dispute.entity';
 import { User } from '../users/entities/user.entity';
 import { Rating } from '../ratings/entities/rating.entity';
 import { PushService } from '../push/push.service';
+import { EventsGateway } from '../events/events.gateway';
 
 @Injectable()
 export class AdminService {
@@ -25,6 +26,7 @@ export class AdminService {
     @InjectRepository(Rating)
     private ratingRepo: Repository<Rating>,
     private pushService: PushService,
+    private eventsGateway: EventsGateway,
   ) {}
 
   // ─── Platform overview ───────────────────────────────────────────────────────
@@ -247,6 +249,145 @@ export class AdminService {
 
   async getRecentJobs() {
     return this.jobRepo.find({ order: { createdAt: 'DESC' }, take: 20 });
+  }
+
+  // ─── Get all jobs (paginated) ─────────────────────────────────────────────────
+
+  async getAllJobs(status?: string, search?: string, page = 1, limit = 10) {
+    const query = this.jobRepo.createQueryBuilder('job')
+      .leftJoinAndSelect('job.customer', 'customer')
+      .leftJoinAndSelect('job.transporter', 'transporter');
+
+    if (status) {
+      query.andWhere('job.status = :status', { status });
+    }
+
+    if (search) {
+      query.andWhere(
+        '(job.pickupState ILIKE :search OR job.deliveryState ILIKE :search OR customer.fullName ILIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
+
+    query.orderBy('job.createdAt', 'DESC');
+    query.skip((page - 1) * limit).take(limit);
+
+    const [jobs, total] = await query.getManyAndCount();
+
+    return {
+      jobs: jobs.map(j => ({
+        id: j.id,
+        pickupAddress: j.pickupAddress,
+        pickupState: j.pickupState,
+        deliveryAddress: j.deliveryAddress,
+        deliveryState: j.deliveryState,
+        status: j.status,
+        vehicleType: j.vehicleType,
+        cargoDescription: j.cargoDescription,
+        cargoWeight: j.cargoWeight,
+        cargoValue: j.cargoValue,
+        acceptedAmount: j.acceptedAmount,
+        goodsCategory: (j as any).goodsCategory,
+        disclaimerAccepted: (j as any).disclaimerAccepted,
+        deliveryOtp: (j as any).deliveryOtp,
+        otpVerified: (j as any).otpVerified,
+        recipientName: (j as any).recipientName,
+        recipientPhone: (j as any).recipientPhone,
+        createdAt: j.createdAt,
+        customer: j.customer ? {
+          id: j.customer.id,
+          fullName: j.customer.fullName,
+          email: j.customer.email,
+          phone: j.customer.phone,
+        } : null,
+        transporter: j.transporter ? {
+          id: j.transporter.id,
+          fullName: j.transporter.fullName,
+          email: j.transporter.email,
+          phone: j.transporter.phone,
+          isVerified: j.transporter.isVerified,
+        } : null,
+      })),
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  // ─── Get job by id ────────────────────────────────────────────────────────────
+
+  async getJobById(jobId: string) {
+    const job = await this.jobRepo.findOne({
+      where: { id: jobId },
+      relations: ['customer', 'transporter'],
+    });
+    if (!job) throw new Error('Job not found');
+
+    const payment = await this.paymentRepo.findOne({
+      where: { jobId } as any,
+    });
+
+    return { ...job, payment: payment || null };
+  }
+
+  // ─── Cancel job (admin) ───────────────────────────────────────────────────────
+
+  async cancelJob(jobId: string) {
+    const job = await this.jobRepo.findOne({ where: { id: jobId } });
+    if (!job) throw new Error('Job not found');
+
+    await this.jobRepo.update(jobId, { status: 'cancelled' as any });
+
+    if (job.customerId) {
+      this.eventsGateway.notifyUser(job.customerId, 'job:statusUpdate', {
+        jobId,
+        status: 'cancelled',
+        message: 'Your job has been cancelled by admin.',
+      });
+    }
+
+    if (job.transporterId) {
+      this.eventsGateway.notifyUser(job.transporterId, 'job:statusUpdate', {
+        jobId,
+        status: 'cancelled',
+        message: 'A job has been cancelled by admin.',
+      });
+    }
+
+    return { message: 'Job cancelled successfully' };
+  }
+
+  // ─── Job analytics ────────────────────────────────────────────────────────────
+
+  async getJobAnalytics() {
+    const [
+      bidding, accepted, inTransit, delivered, cancelled,
+      rider, van, truckSmall, truckMedium, truckLarge,
+      totalJobs,
+    ] = await Promise.all([
+      this.jobRepo.count({ where: { status: 'bidding' as any } }),
+      this.jobRepo.count({ where: { status: 'accepted' as any } }),
+      this.jobRepo.count({ where: { status: 'in-transit' as any } }),
+      this.jobRepo.count({ where: { status: 'delivered' as any } }),
+      this.jobRepo.count({ where: { status: 'cancelled' as any } }),
+      this.jobRepo.count({ where: { vehicleType: 'rider' as any } }),
+      this.jobRepo.count({ where: { vehicleType: 'van' as any } }),
+      this.jobRepo.count({ where: { vehicleType: 'truck-small' as any } }),
+      this.jobRepo.count({ where: { vehicleType: 'truck-medium' as any } }),
+      this.jobRepo.count({ where: { vehicleType: 'truck-large' as any } }),
+      this.jobRepo.count(),
+    ]);
+
+    const completionRate = totalJobs > 0
+      ? Math.round((delivered / totalJobs) * 100)
+      : 0;
+
+    return {
+      byStatus: { bidding, accepted, inTransit, delivered, cancelled },
+      byVehicleType: { rider, van, truckSmall, truckMedium, truckLarge },
+      completionRate,
+      totalJobs,
+    };
   }
 
   // ─── Stats ───────────────────────────────────────────────────────────────────

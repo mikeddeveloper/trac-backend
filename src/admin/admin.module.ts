@@ -11,9 +11,10 @@ import { Dispute } from '../disputes/entities/dispute.entity';
 import { User } from '../users/entities/user.entity';
 import { Rating } from '../ratings/entities/rating.entity';
 import { PushModule } from '../push/push.module';
+import { EventsModule } from '../events/events.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Job, Payment, Dispute, User, Rating]), PushModule],
+  imports: [TypeOrmModule.forFeature([Job, Payment, Dispute, User, Rating]), PushModule, EventsModule],
   controllers: [AdminController],
   providers: [AdminService],
   exports: [AdminService],

@@ -79,8 +79,40 @@ export class AdminController {
 
   // ─── GET /admin/jobs ─────────────────────────────────────────────────────────
   @Get('jobs')
-  async getAllJobs() {
-    return this.adminService.getRecentJobs();
+  @UseGuards(AuthGuard('jwt'))
+  async getAllJobs(
+    @Request() req: any,
+    @Query('status') status?: string,
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.getAllJobs(status, search, Number(page) || 1, Number(limit) || 10);
+  }
+
+  // ─── GET /admin/jobs/:id ──────────────────────────────────────────────────────
+  @Get('jobs/:id')
+  @UseGuards(AuthGuard('jwt'))
+  async getJobById(@Request() req: any, @Param('id') id: string) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.getJobById(id);
+  }
+
+  // ─── PATCH /admin/jobs/:id/cancel ─────────────────────────────────────────────
+  @Patch('jobs/:id/cancel')
+  @UseGuards(AuthGuard('jwt'))
+  async cancelJob(@Request() req: any, @Param('id') id: string) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.cancelJob(id);
+  }
+
+  // ─── GET /admin/analytics/jobs ────────────────────────────────────────────────
+  @Get('analytics/jobs')
+  @UseGuards(AuthGuard('jwt'))
+  async getJobAnalytics(@Request() req: any) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.getJobAnalytics();
   }
 
   // ─── GET /admin/stats ────────────────────────────────────────────────────────
