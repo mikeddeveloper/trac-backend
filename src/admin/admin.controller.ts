@@ -1,7 +1,7 @@
 // trac-backend/src/admin/admin.controller.ts
 // Day 22: Admin endpoints — platform overview
 
-import { Controller, Get, Patch, Param, Body, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Patch, Param, Body, Req, Request, UseGuards, ForbiddenException } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { AdminService } from './admin.service';
 
@@ -41,5 +41,21 @@ export class AdminController {
   @Get('jobs')
   async getAllJobs() {
     return this.adminService.getRecentJobs();
+  }
+
+  // ─── GET /admin/stats ────────────────────────────────────────────────────────
+  @Get('stats')
+  @UseGuards(AuthGuard('jwt'))
+  async getStats(@Request() req: any) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.getStats();
+  }
+
+  // ─── GET /admin/activity ─────────────────────────────────────────────────────
+  @Get('activity')
+  @UseGuards(AuthGuard('jwt'))
+  async getActivity(@Request() req: any) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.getActivity();
   }
 }

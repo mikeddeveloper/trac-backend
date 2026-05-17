@@ -3,7 +3,7 @@
 
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, MoreThanOrEqual } from 'typeorm';
 import { Job, JobStatus } from '../jobs/entities/job.entity';
 import { Payment, PaymentStatus } from '../payments/entities/payment.entity';
 import { Dispute, DisputeStatus } from '../disputes/entities/dispute.entity';
@@ -128,5 +128,83 @@ export class AdminService {
 
   async getRecentJobs() {
     return this.jobRepo.find({ order: { createdAt: 'DESC' }, take: 20 });
+  }
+
+  // ─── Stats ───────────────────────────────────────────────────────────────────
+
+  async getStats() {
+    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+
+    const [
+      totalUsers,
+      totalCustomers,
+      totalTransporters,
+      totalJobs,
+      payments,
+      pendingVerifications,
+      jobsThisMonth,
+      newUsersThisMonth,
+    ] = await Promise.all([
+      this.userRepo.count(),
+      this.userRepo.count({ where: { role: 'customer' as any } }),
+      this.userRepo.count({ where: { role: 'transporter' as any } }),
+      this.jobRepo.count(),
+      this.paymentRepo.find({ where: { status: 'success' as any } }),
+      this.userRepo.count({ where: { role: 'transporter' as any, isVerified: false } }),
+      this.jobRepo.count({ where: { createdAt: MoreThanOrEqual(monthStart) } }),
+      this.userRepo.count({ where: { createdAt: MoreThanOrEqual(monthStart) } }),
+    ]);
+
+    const totalRevenue = payments.reduce((sum, p) => sum + Number(p.amount), 0);
+    const platformCommission = totalRevenue * 0.10;
+    const totalVAT = payments.reduce((sum, p) => sum + Number((p as any).vatAmount || 0), 0);
+
+    return {
+      totalUsers,
+      totalCustomers,
+      totalTransporters,
+      totalJobs,
+      totalRevenue,
+      platformCommission,
+      totalVAT,
+      pendingVerifications,
+      jobsThisMonth,
+      newUsersThisMonth,
+      revenueThisMonth: 0,
+      activeDisputes: 0,
+    };
+  }
+
+  // ─── Activity ─────────────────────────────────────────────────────────────────
+
+  async getActivity() {
+    const [recentJobs, recentUsers, recentPayments] = await Promise.all([
+      this.jobRepo.find({ order: { createdAt: 'DESC' }, take: 5, relations: ['customer'] }),
+      this.userRepo.find({ order: { createdAt: 'DESC' }, take: 5 }),
+      this.paymentRepo.find({ where: { status: 'success' as any }, order: { createdAt: 'DESC' }, take: 5 }),
+    ]);
+
+    return [
+      ...recentJobs.map(j => ({
+        type: 'new_job',
+        description: `New job posted: ${j.pickupState} → ${j.deliveryState}`,
+        timestamp: j.createdAt,
+        userId: j.customerId,
+      })),
+      ...recentUsers.map(u => ({
+        type: 'new_user',
+        description: `New ${u.role} signed up: ${u.fullName}`,
+        timestamp: u.createdAt,
+        userId: u.id,
+      })),
+      ...recentPayments.map(p => ({
+        type: 'payment',
+        description: `Payment of ₦${Number(p.amount).toLocaleString()} confirmed`,
+        timestamp: p.createdAt,
+        userId: (p as any).customerId,
+      })),
+    ]
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      .slice(0, 20);
   }
 }
