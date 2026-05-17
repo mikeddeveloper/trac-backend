@@ -9,6 +9,7 @@ import { Payment, PaymentStatus } from '../payments/entities/payment.entity';
 import { Dispute, DisputeStatus } from '../disputes/entities/dispute.entity';
 import { User } from '../users/entities/user.entity';
 import { Rating } from '../ratings/entities/rating.entity';
+import { PushService } from '../push/push.service';
 
 @Injectable()
 export class AdminService {
@@ -23,6 +24,7 @@ export class AdminService {
     private userRepo: Repository<User>,
     @InjectRepository(Rating)
     private ratingRepo: Repository<Rating>,
+    private pushService: PushService,
   ) {}
 
   // ─── Platform overview ───────────────────────────────────────────────────────
@@ -118,10 +120,127 @@ export class AdminService {
     return this.disputeRepo.findOne({ where: { id } });
   }
 
-  // ─── Get all users ───────────────────────────────────────────────────────────
+  // ─── Get all users (paginated) ───────────────────────────────────────────────
 
-  async getAllUsers() {
-    return this.userRepo.find({ order: { createdAt: 'DESC' } });
+  async getAllUsers(role?: string, search?: string, page = 1, limit = 10) {
+    const query = this.userRepo.createQueryBuilder('user');
+
+    if (role) {
+      query.andWhere('user.role = :role', { role });
+    }
+
+    if (search) {
+      query.andWhere(
+        '(user.fullName ILIKE :search OR user.email ILIKE :search OR user.phone ILIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
+
+    query.orderBy('user.createdAt', 'DESC');
+    query.skip((page - 1) * limit).take(limit);
+
+    const [users, total] = await query.getManyAndCount();
+
+    return {
+      users: users.map(u => ({
+        id: u.id,
+        fullName: u.fullName,
+        email: u.email,
+        phone: u.phone,
+        role: u.role,
+        isVerified: u.isVerified,
+        isSuspended: (u as any).isSuspended || false,
+        kycStatus: (u as any).kycStatus || 'pending',
+        kycTier: (u as any).kycTier || 0,
+        rating: u.rating,
+        tripsCompleted: u.tripsCompleted,
+        createdAt: u.createdAt,
+      })),
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  // ─── Get user by id ──────────────────────────────────────────────────────────
+
+  async getUserById(userId: string) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new Error('User not found');
+
+    const [jobs, payments] = await Promise.all([
+      this.jobRepo.find({
+        where: [{ customerId: userId }, { transporterId: userId }],
+        order: { createdAt: 'DESC' },
+        take: 10,
+      }),
+      this.paymentRepo.find({
+        where: { customerId: userId } as any,
+        order: { createdAt: 'DESC' },
+        take: 10,
+      }),
+    ]);
+
+    return {
+      id: user.id,
+      fullName: user.fullName,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+      isVerified: user.isVerified,
+      isSuspended: (user as any).isSuspended || false,
+      kycStatus: (user as any).kycStatus || 'pending',
+      kycTier: (user as any).kycTier || 0,
+      rating: user.rating,
+      tripsCompleted: user.tripsCompleted,
+      avatarUrl: user.avatarUrl,
+      state: user.state,
+      vehicleType: user.vehicleType,
+      createdAt: user.createdAt,
+      recentJobs: jobs,
+      recentPayments: payments,
+    };
+  }
+
+  // ─── Suspend / unsuspend user ────────────────────────────────────────────────
+
+  async suspendUser(userId: string) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new Error('User not found');
+
+    const isSuspended = !((user as any).isSuspended || false);
+    await this.userRepo.update(userId, { isSuspended } as any);
+
+    return {
+      message: isSuspended ? 'User suspended' : 'User unsuspended',
+      isSuspended,
+    };
+  }
+
+  // ─── Admin verify user ───────────────────────────────────────────────────────
+
+  async verifyUser(userId: string) {
+    await this.userRepo.update(userId, {
+      isVerified: true,
+      kycStatus: 'approved',
+      kycTier: 1,
+      kycCompletedAt: new Date(),
+    } as any);
+
+    await this.pushService.sendToUser(userId, {
+      title: '✅ Account Verified!',
+      body: 'Your account has been verified by admin. You can now bid on jobs.',
+      icon: '/icon-192.png',
+    }).catch(() => {});
+
+    return { message: 'User verified successfully' };
+  }
+
+  // ─── Deactivate user ─────────────────────────────────────────────────────────
+
+  async deleteUser(userId: string) {
+    await this.userRepo.update(userId, { isActive: false } as any);
+    return { message: 'User deactivated successfully' };
   }
 
   // ─── Get recent jobs ─────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 // trac-backend/src/admin/admin.controller.ts
 // Day 22: Admin endpoints — platform overview
 
-import { Controller, Get, Patch, Param, Body, Req, Request, UseGuards, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Patch, Delete, Param, Query, Body, Req, Request, UseGuards, ForbiddenException } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { AdminService } from './admin.service';
 
@@ -33,8 +33,48 @@ export class AdminController {
 
   // ─── GET /admin/users ────────────────────────────────────────────────────────
   @Get('users')
-  async getAllUsers() {
-    return this.adminService.getAllUsers();
+  @UseGuards(AuthGuard('jwt'))
+  async getAllUsers(
+    @Request() req: any,
+    @Query('role') role?: string,
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.getAllUsers(role, search, Number(page) || 1, Number(limit) || 10);
+  }
+
+  // ─── GET /admin/users/:id ─────────────────────────────────────────────────────
+  @Get('users/:id')
+  @UseGuards(AuthGuard('jwt'))
+  async getUserById(@Request() req: any, @Param('id') id: string) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.getUserById(id);
+  }
+
+  // ─── PATCH /admin/users/:id/suspend ──────────────────────────────────────────
+  @Patch('users/:id/suspend')
+  @UseGuards(AuthGuard('jwt'))
+  async suspendUser(@Request() req: any, @Param('id') id: string) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.suspendUser(id);
+  }
+
+  // ─── PATCH /admin/users/:id/verify ───────────────────────────────────────────
+  @Patch('users/:id/verify')
+  @UseGuards(AuthGuard('jwt'))
+  async verifyUser(@Request() req: any, @Param('id') id: string) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.verifyUser(id);
+  }
+
+  // ─── DELETE /admin/users/:id ──────────────────────────────────────────────────
+  @Delete('users/:id')
+  @UseGuards(AuthGuard('jwt'))
+  async deleteUser(@Request() req: any, @Param('id') id: string) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.deleteUser(id);
   }
 
   // ─── GET /admin/jobs ─────────────────────────────────────────────────────────
