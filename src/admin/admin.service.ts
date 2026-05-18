@@ -435,6 +435,231 @@ export class AdminService {
     };
   }
 
+  // ─── Get all payments (paginated) ────────────────────────────────────────────
+
+  async getAllPayments(status?: string, startDate?: string, endDate?: string, page = 1, limit = 10) {
+    const query = this.paymentRepo.createQueryBuilder('payment')
+      .leftJoinAndSelect('payment.job', 'job')
+      .leftJoin('job.customer', 'customer')
+      .leftJoin('job.transporter', 'transporter')
+      .addSelect(['customer.fullName', 'customer.email', 'transporter.fullName', 'transporter.email']);
+
+    if (status) {
+      query.andWhere('payment.status = :status', { status });
+    }
+
+    if (startDate) {
+      query.andWhere('payment.createdAt >= :startDate', { startDate: new Date(startDate) });
+    }
+
+    if (endDate) {
+      query.andWhere('payment.createdAt <= :endDate', { endDate: new Date(endDate) });
+    }
+
+    query.orderBy('payment.createdAt', 'DESC');
+    query.skip((page - 1) * limit).take(limit);
+
+    const [payments, total] = await query.getManyAndCount();
+
+    return {
+      payments: payments.map(p => ({
+        id: p.id,
+        reference: p.reference,
+        amount: p.amount,
+        vatAmount: (p as any).vatAmount || 0,
+        commission: Number(p.amount) * 0.10,
+        status: p.status,
+        createdAt: p.createdAt,
+        jobId: (p as any).jobId,
+        jobRoute: p.job ? `${p.job.pickupState} → ${p.job.deliveryState}` : 'N/A',
+        customerName: p.job?.customer?.fullName || 'N/A',
+        transporterName: p.job?.transporter?.fullName || 'N/A',
+      })),
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  // ─── Payment stats ────────────────────────────────────────────────────────────
+
+  async getPaymentStats() {
+    const successPayments = await this.paymentRepo.find({ where: { status: 'success' as any } });
+    const thisMonth    = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const lastMonth    = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1);
+    const lastMonthEnd = new Date(new Date().getFullYear(), new Date().getMonth(), 0);
+
+    const thisMonthPayments = successPayments.filter(p => new Date(p.createdAt) >= thisMonth);
+    const lastMonthPayments = successPayments.filter(
+      p => new Date(p.createdAt) >= lastMonth && new Date(p.createdAt) <= lastMonthEnd,
+    );
+
+    const totalProcessed  = successPayments.reduce((sum, p) => sum + Number(p.amount), 0);
+    const totalCommission = totalProcessed * 0.10;
+    const totalVAT        = successPayments.reduce((sum, p) => sum + Number((p as any).vatAmount || 0), 0);
+    const thisMonthTotal  = thisMonthPayments.reduce((sum, p) => sum + Number(p.amount), 0);
+    const lastMonthTotal  = lastMonthPayments.reduce((sum, p) => sum + Number(p.amount), 0);
+
+    const acceptedJobs = await this.jobRepo.find({ where: { status: 'accepted' as any } });
+    const escrowJobs   = await Promise.all(
+      acceptedJobs.map(j => this.paymentRepo.findOne({ where: { jobId: j.id } as any })),
+    );
+    const escrowHeld = escrowJobs
+      .filter(p => p && p.status === 'success' as any)
+      .reduce((sum, p) => sum + Number(p!.amount), 0);
+
+    return {
+      totalProcessed,
+      totalCommission,
+      totalVAT,
+      thisMonth: thisMonthTotal,
+      lastMonth: lastMonthTotal,
+      escrowHeld,
+      growth: lastMonthTotal > 0
+        ? Math.round(((thisMonthTotal - lastMonthTotal) / lastMonthTotal) * 100)
+        : 0,
+    };
+  }
+
+  // ─── Release payment (admin) ──────────────────────────────────────────────────
+
+  async releasePayment(paymentId: string) {
+    const payment = await this.paymentRepo.findOne({ where: { id: paymentId } });
+    if (!payment) throw new Error('Payment not found');
+
+    await this.paymentRepo.update(paymentId, { status: 'released' as any });
+
+    const job = await this.jobRepo.findOne({ where: { id: (payment as any).jobId } });
+    if (job?.transporterId) {
+      this.eventsGateway.notifyUser(job.transporterId, 'payment:released', {
+        amount: payment.amount,
+        message: `Payment of ₦${Number(payment.amount).toLocaleString()} has been released to you.`,
+      });
+      await this.pushService.sendToUser(job.transporterId, {
+        title: '💰 Payment Released!',
+        body: `₦${Number(payment.amount).toLocaleString()} has been released to your account.`,
+        icon: '/icon-192.png',
+      }).catch(() => {});
+    }
+
+    return { message: 'Payment released successfully' };
+  }
+
+  // ─── Refund payment (admin) ───────────────────────────────────────────────────
+
+  async refundPayment(paymentId: string) {
+    const payment = await this.paymentRepo.findOne({ where: { id: paymentId } });
+    if (!payment) throw new Error('Payment not found');
+
+    await this.paymentRepo.update(paymentId, { status: 'refunded' as any });
+
+    const job = await this.jobRepo.findOne({ where: { id: (payment as any).jobId } });
+    if (job?.customerId) {
+      this.eventsGateway.notifyUser(job.customerId, 'payment:refunded', {
+        amount: payment.amount,
+        message: `Payment of ₦${Number(payment.amount).toLocaleString()} has been refunded to you.`,
+      });
+      await this.pushService.sendToUser(job.customerId, {
+        title: '💰 Payment Refunded!',
+        body: `₦${Number(payment.amount).toLocaleString()} has been refunded to your account.`,
+        icon: '/icon-192.png',
+      }).catch(() => {});
+    }
+
+    return { message: 'Payment refunded successfully' };
+  }
+
+  // ─── Revenue analytics ────────────────────────────────────────────────────────
+
+  async getRevenueAnalytics() {
+    const last7days: { date: string; amount: number; commission: number }[] = [];
+
+    for (let i = 6; i >= 0; i--) {
+      const date     = new Date();
+      date.setDate(date.getDate() - i);
+      const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      const dayEnd   = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
+
+      const payments = await this.paymentRepo.find({
+        where: { status: 'success' as any, createdAt: MoreThanOrEqual(dayStart) },
+      });
+      const dayPayments = payments.filter(p => new Date(p.createdAt) < dayEnd);
+      const amount      = dayPayments.reduce((sum, p) => sum + Number(p.amount), 0);
+
+      last7days.push({
+        date: dayStart.toLocaleDateString('en-NG', { weekday: 'short', day: 'numeric' }),
+        amount,
+        commission: amount * 0.10,
+      });
+    }
+
+    const allJobs = await this.jobRepo.find();
+    const routeCounts: Record<string, { count: number; revenue: number }> = {};
+    allJobs.forEach(j => {
+      const route = `${j.pickupState} → ${j.deliveryState}`;
+      if (!routeCounts[route]) routeCounts[route] = { count: 0, revenue: 0 };
+      routeCounts[route].count++;
+      routeCounts[route].revenue += Number(j.acceptedAmount || 0);
+    });
+    const topRoutes = Object.entries(routeCounts)
+      .map(([route, data]) => ({ route, ...data }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    const transporters = await this.userRepo.find({
+      where: { role: 'transporter' as any },
+      order: { tripsCompleted: 'DESC' },
+      take: 5,
+    });
+    const topTransporters = transporters.map(t => ({
+      id: t.id,
+      fullName: t.fullName,
+      tripsCompleted: t.tripsCompleted,
+      rating: t.rating,
+    }));
+
+    return { last7days, topRoutes, topTransporters };
+  }
+
+  // ─── User analytics ───────────────────────────────────────────────────────────
+
+  async getUserAnalytics() {
+    const thisMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+
+    const [totalCustomers, totalTransporters, newCustomersThisMonth, newTransportersThisMonth] =
+      await Promise.all([
+        this.userRepo.count({ where: { role: 'customer' as any } }),
+        this.userRepo.count({ where: { role: 'transporter' as any } }),
+        this.userRepo.count({ where: { role: 'customer' as any, createdAt: MoreThanOrEqual(thisMonth) } }),
+        this.userRepo.count({ where: { role: 'transporter' as any, createdAt: MoreThanOrEqual(thisMonth) } }),
+      ]);
+
+    const [topCustomers, topTransporters] = await Promise.all([
+      this.userRepo.find({ where: { role: 'customer' as any }, order: { tripsCompleted: 'DESC' }, take: 5 }),
+      this.userRepo.find({ where: { role: 'transporter' as any }, order: { tripsCompleted: 'DESC' }, take: 5 }),
+    ]);
+
+    return {
+      totalCustomers,
+      totalTransporters,
+      newCustomersThisMonth,
+      newTransportersThisMonth,
+      topCustomers: topCustomers.map(u => ({
+        id: u.id,
+        fullName: u.fullName,
+        email: u.email,
+        tripsCompleted: u.tripsCompleted,
+      })),
+      topTransporters: topTransporters.map(u => ({
+        id: u.id,
+        fullName: u.fullName,
+        email: u.email,
+        tripsCompleted: u.tripsCompleted,
+        rating: u.rating,
+      })),
+    };
+  }
+
   // ─── Activity ─────────────────────────────────────────────────────────────────
 
   async getActivity() {

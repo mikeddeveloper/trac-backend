@@ -115,6 +115,61 @@ export class AdminController {
     return this.adminService.getJobAnalytics();
   }
 
+  // ─── GET /admin/payments/stats ────────────────────────────────────────────────
+  @Get('payments/stats')
+  @UseGuards(AuthGuard('jwt'))
+  async getPaymentStats(@Request() req: any) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.getPaymentStats();
+  }
+
+  // ─── GET /admin/payments ──────────────────────────────────────────────────────
+  @Get('payments')
+  @UseGuards(AuthGuard('jwt'))
+  async getAllPayments(
+    @Request() req: any,
+    @Query('status') status?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.getAllPayments(status, startDate, endDate, Number(page) || 1, Number(limit) || 10);
+  }
+
+  // ─── PATCH /admin/payments/:id/release ───────────────────────────────────────
+  @Patch('payments/:id/release')
+  @UseGuards(AuthGuard('jwt'))
+  async releasePayment(@Request() req: any, @Param('id') id: string) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.releasePayment(id);
+  }
+
+  // ─── PATCH /admin/payments/:id/refund ────────────────────────────────────────
+  @Patch('payments/:id/refund')
+  @UseGuards(AuthGuard('jwt'))
+  async refundPayment(@Request() req: any, @Param('id') id: string) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.refundPayment(id);
+  }
+
+  // ─── GET /admin/analytics/revenue ────────────────────────────────────────────
+  @Get('analytics/revenue')
+  @UseGuards(AuthGuard('jwt'))
+  async getRevenueAnalytics(@Request() req: any) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.getRevenueAnalytics();
+  }
+
+  // ─── GET /admin/analytics/users ──────────────────────────────────────────────
+  @Get('analytics/users')
+  @UseGuards(AuthGuard('jwt'))
+  async getUserAnalytics(@Request() req: any) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.getUserAnalytics();
+  }
+
   // ─── GET /admin/stats ────────────────────────────────────────────────────────
   @Get('stats')
   @UseGuards(AuthGuard('jwt'))
