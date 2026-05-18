@@ -1,7 +1,7 @@
 // trac-backend/src/admin/admin.service.ts
 // Day 22: Admin service — platform-wide data
 
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThanOrEqual } from 'typeorm';
 import { Job, JobStatus } from '../jobs/entities/job.entity';
@@ -14,6 +14,8 @@ import { EventsGateway } from '../events/events.gateway';
 
 @Injectable()
 export class AdminService {
+  private readonly logger = new Logger(AdminService.name);
+
   constructor(
     @InjectRepository(Job)
     private jobRepo: Repository<Job>,
@@ -691,5 +693,260 @@ export class AdminService {
     ]
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
       .slice(0, 20);
+  }
+
+  // ─── Pending verifications ────────────────────────────────────────────────────
+
+  async getPendingVerifications() {
+    const pending = await this.userRepo.find({
+      where: { role: 'transporter' as any, isVerified: false },
+      order: { createdAt: 'DESC' },
+    });
+
+    return pending.map(u => ({
+      id: u.id,
+      fullName: u.fullName,
+      email: u.email,
+      phone: u.phone,
+      kycStatus: (u as any).kycStatus || 'pending',
+      vehicleType: u.vehicleType,
+      licenseNumber: u.licenseNumber,
+      createdAt: u.createdAt,
+      avatarUrl: u.avatarUrl,
+    }));
+  }
+
+  // ─── Approved verifications ───────────────────────────────────────────────────
+
+  async getApprovedVerifications() {
+    const approved = await this.userRepo.find({
+      where: { role: 'transporter' as any, isVerified: true },
+      order: { createdAt: 'DESC' },
+    });
+
+    return approved.map(u => ({
+      id: u.id,
+      fullName: u.fullName,
+      email: u.email,
+      phone: u.phone,
+      kycStatus: (u as any).kycStatus || 'approved',
+      kycTier: (u as any).kycTier || 1,
+      kycCompletedAt: (u as any).kycCompletedAt,
+      vehicleType: u.vehicleType,
+      rating: u.rating,
+      tripsCompleted: u.tripsCompleted,
+      createdAt: u.createdAt,
+    }));
+  }
+
+  // ─── Approve KYC ──────────────────────────────────────────────────────────────
+
+  async approveKYC(userId: string) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new Error('User not found');
+
+    await this.userRepo.update(userId, {
+      isVerified: true,
+      kycStatus: 'approved',
+      kycTier: 1,
+      kycCompletedAt: new Date(),
+    } as any);
+
+    this.eventsGateway.notifyUser(userId, 'kyc:approved', {
+      message: 'Your account has been verified by admin. You can now bid on jobs.',
+    });
+
+    await this.pushService.sendToUser(userId, {
+      title: '✅ Account Verified!',
+      body: 'Your account has been verified by admin. You can now bid on jobs.',
+      icon: '/icon-192.png',
+    }).catch(() => {});
+
+    return { message: 'User verified successfully' };
+  }
+
+  // ─── Reject KYC ───────────────────────────────────────────────────────────────
+
+  async rejectKYC(userId: string, reason: string) {
+    await this.userRepo.update(userId, { kycStatus: 'rejected' } as any);
+
+    this.eventsGateway.notifyUser(userId, 'kyc:rejected', {
+      message: `Verification rejected: ${reason}`,
+      reason,
+    });
+
+    await this.pushService.sendToUser(userId, {
+      title: '❌ Verification Rejected',
+      body: `Your verification was rejected: ${reason}`,
+      icon: '/icon-192.png',
+    }).catch(() => {});
+
+    return { message: 'Verification rejected' };
+  }
+
+  // ─── Revoke verification ──────────────────────────────────────────────────────
+
+  async revokeVerification(userId: string) {
+    await this.userRepo.update(userId, {
+      isVerified: false,
+      kycStatus: 'pending',
+      kycTier: 0,
+    } as any);
+
+    await this.pushService.sendToUser(userId, {
+      title: '⚠️ Verification Revoked',
+      body: 'Your verification has been revoked by admin. Please contact support.',
+      icon: '/icon-192.png',
+    }).catch(() => {});
+
+    return { message: 'Verification revoked' };
+  }
+
+  // ─── KYC analytics ───────────────────────────────────────────────────────────
+
+  async getKycAnalytics() {
+    const [totalVerified, totalPending, totalRejected, totalTransporters] = await Promise.all([
+      this.userRepo.count({ where: { role: 'transporter' as any, isVerified: true } }),
+      this.userRepo.count({ where: { role: 'transporter' as any, isVerified: false } }),
+      this.userRepo.count({ where: { kycStatus: 'rejected' } as any }),
+      this.userRepo.count({ where: { role: 'transporter' as any } }),
+    ]);
+
+    const verificationRate = totalTransporters > 0
+      ? Math.round((totalVerified / totalTransporters) * 100)
+      : 0;
+
+    return { totalVerified, totalPending, totalRejected, totalTransporters, verificationRate };
+  }
+
+  // ─── Settings ─────────────────────────────────────────────────────────────────
+
+  async getSettings() {
+    return {
+      commissionRate: 10,
+      vatRate: 7.5,
+      kycCutoffDate: '2026-05-11',
+      maintenanceMode: false,
+      platformName: 'Trac Marketplace',
+      supportEmail: 'admin@trac.com.ng',
+      minBidAmount: 1000,
+      maxBidAmount: 10000000,
+    };
+  }
+
+  async updateSettings(settings: any) {
+    this.logger.log(`Admin updated settings: ${JSON.stringify(settings)}`);
+    return { message: 'Settings updated successfully', settings };
+  }
+
+  // ─── Disputed jobs ────────────────────────────────────────────────────────────
+
+  async getDisputes() {
+    const disputedJobs = await this.jobRepo.find({
+      where: { status: 'disputed' as any },
+      relations: ['customer', 'transporter'],
+      order: { createdAt: 'DESC' },
+    });
+
+    return disputedJobs.map(j => ({
+      id: j.id,
+      pickupState: j.pickupState,
+      deliveryState: j.deliveryState,
+      status: j.status,
+      acceptedAmount: j.acceptedAmount,
+      createdAt: j.createdAt,
+      customer: j.customer ? {
+        id: j.customer.id,
+        fullName: j.customer.fullName,
+        email: j.customer.email,
+        phone: j.customer.phone,
+      } : null,
+      transporter: j.transporter ? {
+        id: j.transporter.id,
+        fullName: j.transporter.fullName,
+        email: j.transporter.email,
+        phone: j.transporter.phone,
+      } : null,
+    }));
+  }
+
+  // ─── Rule for customer ────────────────────────────────────────────────────────
+
+  async ruleForCustomer(jobId: string) {
+    const job = await this.jobRepo.findOne({ where: { id: jobId } });
+    if (!job) throw new Error('Job not found');
+
+    await this.jobRepo.update(jobId, { status: 'cancelled' as any });
+
+    const payment = await this.paymentRepo.findOne({ where: { jobId } as any });
+    if (payment) {
+      await this.paymentRepo.update(payment.id, { status: 'refunded' } as any);
+    }
+
+    if (job.customerId) {
+      this.eventsGateway.notifyUser(job.customerId, 'dispute:resolved', {
+        message: 'Dispute resolved in your favor. Payment will be refunded.',
+        result: 'customer',
+      });
+      await this.pushService.sendToUser(job.customerId, {
+        title: '✅ Dispute Resolved',
+        body: 'Dispute resolved in your favor. Your payment will be refunded.',
+        icon: '/icon-192.png',
+      }).catch(() => {});
+    }
+
+    if (job.transporterId) {
+      this.eventsGateway.notifyUser(job.transporterId, 'dispute:resolved', {
+        message: 'Dispute resolved in favor of customer.',
+        result: 'customer',
+      });
+      await this.pushService.sendToUser(job.transporterId, {
+        title: '❌ Dispute Resolved',
+        body: 'The dispute was resolved in favor of the customer.',
+        icon: '/icon-192.png',
+      }).catch(() => {});
+    }
+
+    return { message: 'Dispute resolved in favor of customer' };
+  }
+
+  // ─── Rule for transporter ─────────────────────────────────────────────────────
+
+  async ruleForTransporter(jobId: string) {
+    const job = await this.jobRepo.findOne({ where: { id: jobId } });
+    if (!job) throw new Error('Job not found');
+
+    await this.jobRepo.update(jobId, { status: 'delivered' as any });
+
+    const payment = await this.paymentRepo.findOne({ where: { jobId } as any });
+    if (payment) {
+      await this.paymentRepo.update(payment.id, { status: 'released' } as any);
+    }
+
+    if (job.transporterId) {
+      this.eventsGateway.notifyUser(job.transporterId, 'dispute:resolved', {
+        message: 'Dispute resolved in your favor. Payment has been released.',
+        result: 'transporter',
+      });
+      await this.pushService.sendToUser(job.transporterId, {
+        title: '✅ Dispute Resolved',
+        body: 'Dispute resolved in your favor. Payment has been released.',
+        icon: '/icon-192.png',
+      }).catch(() => {});
+    }
+
+    if (job.customerId) {
+      this.eventsGateway.notifyUser(job.customerId, 'dispute:resolved', {
+        message: 'Dispute resolved in favor of transporter.',
+        result: 'transporter',
+      });
+      await this.pushService.sendToUser(job.customerId, {
+        title: '❌ Dispute Resolved',
+        body: 'The dispute was resolved in favor of the transporter.',
+        icon: '/icon-192.png',
+      }).catch(() => {});
+    }
+
+    return { message: 'Dispute resolved in favor of transporter' };
   }
 }

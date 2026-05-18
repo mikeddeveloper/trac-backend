@@ -18,17 +18,38 @@ export class AdminController {
 
   // ─── GET /admin/disputes ─────────────────────────────────────────────────────
   @Get('disputes')
-  async getAllDisputes() {
-    return this.adminService.getAllDisputes();
+  @UseGuards(AuthGuard('jwt'))
+  async getDisputes(@Request() req: any) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.getDisputes();
   }
 
   // ─── PATCH /admin/disputes/:id/resolve ───────────────────────────────────────
   @Patch('disputes/:id/resolve')
+  @UseGuards(AuthGuard('jwt'))
   async resolveDispute(
+    @Request() req: any,
     @Param('id') id: string,
     @Body() body: { resolutionNote: string },
   ) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
     return this.adminService.resolveDispute(id, body.resolutionNote);
+  }
+
+  // ─── PATCH /admin/disputes/:id/rule-customer ──────────────────────────────────
+  @Patch('disputes/:id/rule-customer')
+  @UseGuards(AuthGuard('jwt'))
+  async ruleForCustomer(@Request() req: any, @Param('id') id: string) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.ruleForCustomer(id);
+  }
+
+  // ─── PATCH /admin/disputes/:id/rule-transporter ───────────────────────────────
+  @Patch('disputes/:id/rule-transporter')
+  @UseGuards(AuthGuard('jwt'))
+  async ruleForTransporter(@Request() req: any, @Param('id') id: string) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.ruleForTransporter(id);
   }
 
   // ─── GET /admin/users ────────────────────────────────────────────────────────
@@ -168,6 +189,74 @@ export class AdminController {
   async getUserAnalytics(@Request() req: any) {
     if (req.user.role !== 'admin') throw new ForbiddenException();
     return this.adminService.getUserAnalytics();
+  }
+
+  // ─── GET /admin/verifications/pending ────────────────────────────────────────
+  @Get('verifications/pending')
+  @UseGuards(AuthGuard('jwt'))
+  async getPendingVerifications(@Request() req: any) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.getPendingVerifications();
+  }
+
+  // ─── GET /admin/verifications/approved ───────────────────────────────────────
+  @Get('verifications/approved')
+  @UseGuards(AuthGuard('jwt'))
+  async getApprovedVerifications(@Request() req: any) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.getApprovedVerifications();
+  }
+
+  // ─── PATCH /admin/kyc/:userId/approve ────────────────────────────────────────
+  @Patch('kyc/:userId/approve')
+  @UseGuards(AuthGuard('jwt'))
+  async approveKYC(@Request() req: any, @Param('userId') userId: string) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.approveKYC(userId);
+  }
+
+  // ─── PATCH /admin/kyc/:userId/reject ─────────────────────────────────────────
+  @Patch('kyc/:userId/reject')
+  @UseGuards(AuthGuard('jwt'))
+  async rejectKYC(
+    @Request() req: any,
+    @Param('userId') userId: string,
+    @Body() body: { reason: string },
+  ) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.rejectKYC(userId, body.reason);
+  }
+
+  // ─── PATCH /admin/kyc/:userId/revoke ─────────────────────────────────────────
+  @Patch('kyc/:userId/revoke')
+  @UseGuards(AuthGuard('jwt'))
+  async revokeVerification(@Request() req: any, @Param('userId') userId: string) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.revokeVerification(userId);
+  }
+
+  // ─── GET /admin/analytics/kyc ────────────────────────────────────────────────
+  @Get('analytics/kyc')
+  @UseGuards(AuthGuard('jwt'))
+  async getKycAnalytics(@Request() req: any) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.getKycAnalytics();
+  }
+
+  // ─── GET /admin/settings ─────────────────────────────────────────────────────
+  @Get('settings')
+  @UseGuards(AuthGuard('jwt'))
+  async getSettings(@Request() req: any) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.getSettings();
+  }
+
+  // ─── PATCH /admin/settings ───────────────────────────────────────────────────
+  @Patch('settings')
+  @UseGuards(AuthGuard('jwt'))
+  async updateSettings(@Request() req: any, @Body() body: any) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.updateSettings(body);
   }
 
   // ─── GET /admin/stats ────────────────────────────────────────────────────────
