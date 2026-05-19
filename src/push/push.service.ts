@@ -33,8 +33,8 @@ export class PushService {
   // ─── Save push subscription ──────────────────────────────────────────────────
 
   async saveSubscription(userId: string, subscription: any): Promise<void> {
-    if (!userId) {
-      this.logger.warn('saveSubscription called with undefined userId - skipping');
+    if (!userId || userId === 'undefined') {
+      this.logger.warn('saveSubscription: skipping undefined userId');
       return;
     }
 
