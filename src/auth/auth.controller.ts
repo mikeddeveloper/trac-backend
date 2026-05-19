@@ -43,21 +43,31 @@ export class AuthController {
   @UseGuards(AuthGuard('google'))
   async googleCallback(@Request() req: any, @Res() res: any) {
     const user = req.user;
-    const payload = { id: user.id, email: user.email, role: user.role };
+
+    const payload = {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      fullName: user.fullName,
+    };
+
     const accessToken = this.authService.generateAccessToken(payload);
+
     const frontendUrl =
       this.configService.get<string>('FRONTEND_URL') ||
       'https://trac-logistics-web-app.vercel.app';
 
-    const userStr = encodeURIComponent(JSON.stringify({
+    const userObj = {
       id: user.id,
       fullName: user.fullName,
       email: user.email,
       role: user.role,
       isVerified: user.isVerified,
-      avatarUrl: user.avatarUrl,
-    }));
+      avatarUrl: user.avatarUrl || null,
+      phone: user.phone || null,
+    };
 
+    const userStr = encodeURIComponent(JSON.stringify(userObj));
     res.redirect(`${frontendUrl}/auth/google/callback?token=${accessToken}&user=${userStr}`);
   }
 

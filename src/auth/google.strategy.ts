@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy, VerifyCallback } from 'passport-google-oauth20';
 import { ConfigService } from '@nestjs/config';
@@ -8,6 +8,8 @@ import { User, UserRole } from '../users/entities/user.entity';
 
 @Injectable()
 export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
+  private readonly logger = new Logger(GoogleStrategy.name);
+
   constructor(
     configService: ConfigService,
     @InjectRepository(User)
@@ -23,16 +25,23 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
 
   async validate(_accessToken: string, _refreshToken: string, profile: any, done: VerifyCallback) {
     try {
-      const email = profile.emails?.[0]?.value as string | undefined;
-      const fullName = profile.displayName as string;
-      const googleId = profile.id as string;
-      const avatarUrl = profile.photos?.[0]?.value as string | undefined;
+      const email: string | undefined = profile.emails?.[0]?.value;
+      const fullName: string = profile.displayName;
+      const googleId: string = profile.id;
+      const avatarUrl: string | undefined = profile.photos?.[0]?.value;
 
       if (!email) return done(new Error('No email from Google'), false as any);
 
-      let user = await this.userRepo.findOne({ where: { email } });
+      let user = await this.userRepo.findOne({ where: { googleId } });
 
       if (!user) {
+        user = await this.userRepo.findOne({ where: { email } });
+      }
+
+      if (user) {
+        await this.userRepo.update(user.id, { googleId, avatarUrl: avatarUrl ?? undefined });
+        user = await this.userRepo.findOne({ where: { id: user.id } }) ?? user;
+      } else {
         const newUser = this.userRepo.create({
           fullName,
           email,
@@ -44,14 +53,12 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
         });
         newUser.password = Math.random().toString(36);
         user = await this.userRepo.save(newUser);
-      } else {
-        await this.userRepo.update(user.id, { googleId, avatarUrl: avatarUrl ?? undefined });
-        user.googleId = googleId;
-        user.avatarUrl = avatarUrl ?? user.avatarUrl;
       }
 
+      this.logger.log(`Google login: ${user.fullName} (${user.role}) - ${user.email}`);
       return done(null, user);
     } catch (error) {
+      this.logger.error('Google OAuth error:', error);
       return done(error as Error, false as any);
     }
   }
