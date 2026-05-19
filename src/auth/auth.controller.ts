@@ -42,14 +42,23 @@ export class AuthController {
   @Get('google/callback')
   @UseGuards(AuthGuard('google'))
   async googleCallback(@Request() req: any, @Res() res: any) {
-    const result = await this.authService.googleLogin(req.user);
-    const frontendUrl = this.configService.get<string>('FRONTEND_URL');
-    const params = new URLSearchParams({
-      accessToken: result.accessToken,
-      refreshToken: result.refreshToken,
-      role: result.user.role,
-    });
-    res.redirect(`${frontendUrl}/auth/callback?${params.toString()}`);
+    const user = req.user;
+    const payload = { id: user.id, email: user.email, role: user.role };
+    const accessToken = this.authService.generateAccessToken(payload);
+    const frontendUrl =
+      this.configService.get<string>('FRONTEND_URL') ||
+      'https://trac-logistics-web-app.vercel.app';
+
+    const userStr = encodeURIComponent(JSON.stringify({
+      id: user.id,
+      fullName: user.fullName,
+      email: user.email,
+      role: user.role,
+      isVerified: user.isVerified,
+      avatarUrl: user.avatarUrl,
+    }));
+
+    res.redirect(`${frontendUrl}/auth/google/callback?token=${accessToken}&user=${userStr}`);
   }
 
   // GET /api/auth/me — returns full user from DB including fullName

@@ -134,6 +134,10 @@ export class AuthService {
     };
   }
 
+  generateAccessToken(payload: Record<string, unknown>): string {
+    return this.jwtService.sign(payload);
+  }
+
   async logout(userId: string) {
     await this.usersService.updateRefreshToken(userId, null);
     return { message: 'Logged out successfully' };

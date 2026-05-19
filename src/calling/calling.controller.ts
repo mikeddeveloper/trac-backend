@@ -15,10 +15,10 @@ export class CallingController {
   ) {}
 
   // ─── POST /calling/initiate/:jobId ───────────────────────────────────────────
-  // Customer initiates a call — gets token and notifies transporter
+  // Customer initiates a call — validates job state, returns Agora token
   @Post('initiate/:jobId')
   async initiateCall(@Param('jobId') jobId: string, @Req() req: any) {
-    const session = this.callingService.createCallSession(jobId, req.user.id, 'caller');
+    const session = await this.callingService.initiateCall(jobId);
     const callerName = req.user.fullName || req.user.firstName || 'Customer';
 
     // Notify transporter via socket
