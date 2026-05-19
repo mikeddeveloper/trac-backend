@@ -46,6 +46,7 @@ export class AuthController {
 
     const payload = {
       id: user.id,
+      sub: user.id,
       email: user.email,
       role: user.role,
       fullName: user.fullName,

@@ -39,8 +39,9 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       }
 
       if (user) {
-        await this.userRepo.update(user.id, { googleId, avatarUrl: avatarUrl ?? undefined });
-        user = await this.userRepo.findOne({ where: { id: user.id } }) ?? user;
+        user.googleId = googleId;
+        if (avatarUrl) user.avatarUrl = avatarUrl;
+        user = await this.userRepo.save(user);
       } else {
         const newUser = this.userRepo.create({
           fullName,

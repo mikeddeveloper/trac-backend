@@ -33,6 +33,11 @@ export class PushService {
   // ─── Save push subscription ──────────────────────────────────────────────────
 
   async saveSubscription(userId: string, subscription: any): Promise<void> {
+    if (!userId) {
+      this.logger.warn('saveSubscription called with undefined userId - skipping');
+      return;
+    }
+
     const endpoint = subscription.endpoint;
 
     // Check if already exists

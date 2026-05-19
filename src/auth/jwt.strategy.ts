@@ -17,12 +17,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: { sub: string; email: string; role?: string }): Promise<{ id: string; email: string; role: string }> {
+  async validate(payload: { id?: string; sub?: string; email: string; role?: string; fullName?: string }) {
+    const userId = payload.id || payload.sub;
     let role = payload.role;
 
     // If role is missing from the JWT payload, fetch it from DB
-    if (!role) {
-      const user = await this.usersService.findById(payload.sub);
+    if (!role && userId) {
+      const user = await this.usersService.findById(userId);
       if (!user) throw new UnauthorizedException('User not found');
       role = (user as any).role;
     }
@@ -31,6 +32,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('User role could not be determined');
     }
 
-    return { id: payload.sub, email: payload.email, role };
+    return { id: userId, email: payload.email, role, fullName: payload.fullName };
   }
 }
