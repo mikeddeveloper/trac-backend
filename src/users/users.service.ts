@@ -54,4 +54,8 @@ export class UsersService {
   async findAll(): Promise<User[]> {
     return this.usersRepo.find();
   }
+
+  async deactivateAccount(userId: string): Promise<void> {
+    await this.usersRepo.update(userId, { isActive: false } as any);
+  }
 }

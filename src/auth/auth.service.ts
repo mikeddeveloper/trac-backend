@@ -1,4 +1,4 @@
-import { Injectable, ConflictException, UnauthorizedException } from '@nestjs/common';
+import { Injectable, ConflictException, UnauthorizedException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
@@ -141,5 +141,21 @@ export class AuthService {
   async logout(userId: string) {
     await this.usersService.updateRefreshToken(userId, null);
     return { message: 'Logged out successfully' };
+  }
+
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const user = await this.usersService.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+
+    const userWithPw = await this.usersService.findByEmailWithPassword(user.email);
+    if (!userWithPw) throw new NotFoundException('User not found');
+
+    const isValid = await bcrypt.compare(currentPassword, userWithPw.password);
+    if (!isValid) throw new BadRequestException('Current password is incorrect');
+
+    const hashed = await bcrypt.hash(newPassword, 10);
+    await this.usersService.updateProfile(userId, { password: hashed } as any);
+
+    return { message: 'Password updated successfully' };
   }
 }

@@ -1,7 +1,7 @@
 // trac-backend/src/users/users.controller.ts
 // Profile update + password change
 
-import { Controller, Get, Patch, Body, Request, UseGuards } from '@nestjs/common';
+import { Controller, Get, Patch, Delete, Body, Request, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { UsersService } from './users.service';
 import * as bcrypt from 'bcrypt';
@@ -28,18 +28,43 @@ export class UsersController {
   // PATCH /api/users/profile
   @Patch('profile')
   @UseGuards(AuthGuard('jwt'))
-  async updateProfile(@Request() req: any, @Body() body: { fullName?: string; phone?: string }) {
-    const updated = await this.usersService.updateProfile(req.user.id, {
-      ...(body.fullName && { fullName: body.fullName }),
-      ...(body.phone    && { phone: body.phone }),
-    });
-    return {
-      id: updated.id,
-      fullName: updated.fullName,
-      email: updated.email,
-      phone: updated.phone,
-      role: updated.role,
-    };
+  async updateProfile(
+    @Request() req: any,
+    @Body() body: {
+      fullName?: string;
+      phone?: string;
+      state?: string;
+      bio?: string;
+      companyName?: string;
+      vehicleType?: string;
+      licenseNumber?: string;
+      vehiclePlate?: string;
+      vehicleYear?: string;
+      rcNumber?: string;
+    },
+  ) {
+    const userId = req.user.id;
+    const allowedFields = [
+      'fullName', 'phone', 'state', 'bio',
+      'companyName', 'vehicleType', 'licenseNumber',
+      'vehiclePlate', 'vehicleYear', 'rcNumber',
+    ];
+    const updateData: any = {};
+    for (const field of allowedFields) {
+      if (body[field] !== undefined) updateData[field] = body[field];
+    }
+    if (Object.keys(updateData).length > 0) {
+      await this.usersService.updateProfile(userId, updateData);
+    }
+    return this.usersService.findById(userId);
+  }
+
+  // DELETE /api/users/me
+  @Delete('me')
+  @UseGuards(AuthGuard('jwt'))
+  async deleteAccount(@Request() req: any) {
+    await this.usersService.deactivateAccount(req.user.id);
+    return { message: 'Account deactivated successfully' };
   }
 
   // PATCH /api/users/change-password
