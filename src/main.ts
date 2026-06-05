@@ -10,18 +10,20 @@ async function bootstrap() {
 
   app.use(helmet());
 
-  const allowedOrigins = [
-    'http://localhost:5173',
-    'http://localhost:5174',
-    'https://trac-logistics-web-app.vercel.app',
-    process.env.FRONTEND_URL,
-  ].filter(Boolean) as string[];
-
   app.enableCors({
-    origin: allowedOrigins,
+    origin: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-paystack-signature'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'x-paystack-signature',
+      'Accept',
+      'Origin',
+      'X-Requested-With',
+    ],
+    preflightContinue: false,
+    optionsSuccessStatus: 204,
   });
 
   app.useGlobalPipes(new ValidationPipe({
