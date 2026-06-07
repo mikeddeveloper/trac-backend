@@ -8,7 +8,12 @@ export class EmailService {
   private resend: Resend;
 
   constructor(private configService: ConfigService) {
-    this.resend = new Resend(this.configService.get('RESEND_API_KEY'));
+    const apiKey = this.configService.get<string>('RESEND_API_KEY');
+    if (!apiKey) {
+      this.logger.error('RESEND_API_KEY is not set in environment variables');
+    }
+    this.resend = new Resend(apiKey || 're_placeholder');
+    this.logger.log(`Email service initialized. API key present: ${!!apiKey}`);
   }
 
   async sendWelcomeEmail(user: {
