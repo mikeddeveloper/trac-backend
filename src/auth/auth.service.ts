@@ -6,6 +6,7 @@ import { UsersService } from '../users/users.service';
 import { UserRole } from '../users/entities/user.entity';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class AuthService {
@@ -13,6 +14,7 @@ export class AuthService {
     private usersService: UsersService,
     private jwtService: JwtService,
     private configService: ConfigService,
+    private emailService: EmailService,
   ) {}
 
   async signup(dto: SignupDto) {
@@ -28,6 +30,12 @@ export class AuthService {
       ...dto,
       password: hashedPassword,
     });
+
+    this.emailService.sendWelcomeEmail({
+      fullName: user.fullName,
+      email: user.email,
+      role: user.role,
+    }).catch(() => {});
 
     // Generate tokens
     const tokens = await this.generateTokens(user.id, user.email, user.role);

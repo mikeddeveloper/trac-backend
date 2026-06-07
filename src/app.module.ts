@@ -18,6 +18,7 @@ import { AnalyticsModule } from './analytics/analytics.module';
 import { AdminModule } from './admin/admin.module';
 import { PushModule } from './push/push.module';
 import { WaybillModule } from './waybill/waybill.module';
+import { EmailModule } from './email/email.module';
 import { CallingModule } from './calling/calling.module';
 import { User } from './users/entities/user.entity';
 import { Job } from './jobs/entities/job.entity';
@@ -56,6 +57,7 @@ import { PushSubscription } from './push/entities/push-subscription.entity';
     PushModule,
     WaybillModule,
     CallingModule,
+    EmailModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

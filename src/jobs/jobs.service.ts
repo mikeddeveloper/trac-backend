@@ -11,8 +11,10 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Job, JobStatus } from './entities/job.entity';
+import { User } from '../users/entities/user.entity';
 import { EventsGateway } from '../events/events.gateway';
 import { PushService } from '../push/push.service';
+import { EmailService } from '../email/email.service';
 import { createClient } from '@supabase/supabase-js';
 import { ConfigService } from '@nestjs/config';
 
@@ -39,8 +41,11 @@ export class JobsService {
   constructor(
     @InjectRepository(Job)
     private jobRepo: Repository<Job>,
+    @InjectRepository(User)
+    private userRepo: Repository<User>,
     private eventsGateway: EventsGateway,
     private pushService: PushService,
+    private emailService: EmailService,
     private configService: ConfigService,
   ) {
     const url = this.configService.get<string>('SUPABASE_URL');
@@ -221,6 +226,21 @@ export class JobsService {
         updatedJob.customerId,
         this.pushService.templates.jobDelivered(route),
       ).catch(() => {});
+    }
+
+    if (newStatus === JobStatus.DELIVERED) {
+      try {
+        const customer = await this.userRepo.findOne({ where: { id: job.customerId } });
+        if (customer) {
+          this.emailService.sendDeliveryConfirmedEmail(
+            { fullName: customer.fullName, email: customer.email },
+            {
+              route: job.pickupState + ' → ' + job.deliveryState,
+              amount: Number(job.acceptedAmount) || 0,
+            },
+          ).catch(() => {});
+        }
+      } catch {}
     }
 
     return updatedJob;

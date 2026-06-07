@@ -15,6 +15,7 @@ import axios from 'axios';
 import * as crypto from 'crypto';
 import { Payment, PaymentStatus, PaymentType } from './entities/payment.entity';
 import { EventsGateway } from '../events/events.gateway';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class PaymentsService {
@@ -32,6 +33,7 @@ export class PaymentsService {
     @InjectRepository(Payment)
     private paymentRepo: Repository<Payment>,
     private eventsGateway: EventsGateway,
+    private emailService: EmailService,
   ) {}
 
   private get headers() {
@@ -207,6 +209,19 @@ export class PaymentsService {
         reference: payment.reference,
       });
     }
+
+    try {
+      const customer = job ? await this.paymentRepo.manager.findOne('User', { where: { id: job.customerId } }) as any : null;
+      if (customer) {
+        this.emailService.sendPaymentConfirmedEmail(
+          { fullName: customer.fullName, email: customer.email },
+          {
+            amount: payment.amount,
+            route: job ? job.pickupState + ' → ' + job.deliveryState : 'N/A',
+          },
+        ).catch(() => {});
+      }
+    } catch {}
   }
 
   private async handleTransferSuccess(data: any): Promise<void> {

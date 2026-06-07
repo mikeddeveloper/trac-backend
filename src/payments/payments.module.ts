@@ -9,9 +9,10 @@ import { Payment } from './entities/payment.entity';
 import { Job } from '../jobs/entities/job.entity';
 import { EventsModule } from '../events/events.module';
 import { PushModule } from '../push/push.module';
+import { EmailModule } from '../email/email.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Payment, Job]), EventsModule, PushModule],
+  imports: [TypeOrmModule.forFeature([Payment, Job]), EventsModule, PushModule, EmailModule],
   controllers: [PaymentsController],
   providers: [PaymentsService],
   exports: [PaymentsService],
