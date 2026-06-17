@@ -27,8 +27,13 @@ export class VerificationService {
 
   private async getAccessToken(): Promise<string> {
     if (this.accessToken && Date.now() < this.tokenExpiry) {
+      this.logger.log('Using cached QoreID access token');
       return this.accessToken;
     }
+
+    this.logger.log(`Requesting QoreID token from: ${this.baseUrl}/token`);
+    this.logger.log(`Using clientId: ${this.clientId}`);
+    this.logger.log(`Secret key length: ${this.secretKey?.length || 0}`);
 
     try {
       const response = await axios.post(`${this.baseUrl}/token`, {
@@ -36,11 +41,19 @@ export class VerificationService {
         secret: this.secretKey,
       });
 
-      this.accessToken = response.data.accessToken || null;
+      this.logger.log(`QoreID token response: ${JSON.stringify(response.data)}`);
+
+      this.accessToken = response.data.accessToken;
       this.tokenExpiry = Date.now() + (50 * 60 * 1000);
+
+      this.logger.log(`Token received, length: ${this.accessToken?.length || 0}`);
+
       return this.accessToken || '';
     } catch (error: any) {
-      this.logger.error('QoreID token error:', error?.response?.data || error.message);
+      this.logger.error('QoreID token request FAILED');
+      this.logger.error(`Token error status: ${error?.response?.status}`);
+      this.logger.error(`Token error data: ${JSON.stringify(error?.response?.data)}`);
+      this.logger.error(`Token error message: ${error?.message}`);
       throw new BadRequestException('Failed to authenticate with verification service');
     }
   }
