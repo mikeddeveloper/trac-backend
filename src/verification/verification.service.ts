@@ -8,10 +8,10 @@ import axios from 'axios';
 @Injectable()
 export class VerificationService {
   private readonly logger = new Logger(VerificationService.name);
-  private baseUrl: string;
-  private clientId: string;
-  private secretKey: string;
-  private workflowId: string;
+  private baseUrl: string = '';
+  private clientId: string = '';
+  private secretKey: string = '';
+  private workflowId: string = '';
   private accessToken: string | null = null;
   private tokenExpiry: number = 0;
 
@@ -20,9 +20,9 @@ export class VerificationService {
     @InjectRepository(User) private userRepo: Repository<User>,
   ) {
     this.baseUrl = this.configService.get('QOREID_BASE_URL') || 'https://api.qoreid.com';
-    this.clientId = this.configService.get('QOREID_CLIENT_ID');
-    this.secretKey = this.configService.get('QOREID_SECRET_KEY');
-    this.workflowId = this.configService.get('QOREID_WORKFLOW_ID');
+    this.clientId = this.configService.get('QOREID_CLIENT_ID') || '';
+    this.secretKey = this.configService.get('QOREID_SECRET_KEY') || '';
+    this.workflowId = this.configService.get('QOREID_WORKFLOW_ID') || '';
   }
 
   private async getAccessToken(): Promise<string> {
@@ -36,9 +36,9 @@ export class VerificationService {
         secret: this.secretKey,
       });
 
-      this.accessToken = response.data.accessToken;
+      this.accessToken = response.data.accessToken || null;
       this.tokenExpiry = Date.now() + (50 * 60 * 1000);
-      return this.accessToken;
+      return this.accessToken || '';
     } catch (error: any) {
       this.logger.error('QoreID token error:', error?.response?.data || error.message);
       throw new BadRequestException('Failed to authenticate with verification service');
