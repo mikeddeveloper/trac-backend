@@ -62,17 +62,31 @@ export class VerificationService {
     const token = await this.getAccessToken();
 
     try {
-      const endpoint = data.idType === 'nin'
-        ? `${this.baseUrl}/v1/ng/identities/nin/${data.idNumber}`
-        : `${this.baseUrl}/v1/ng/identities/drivers-license/${data.idNumber}`;
+      const endpoint = `${this.baseUrl}/v1/workflows/${this.workflowId}`;
+
+      const payload: any = {
+        customerReference: userId,
+        applicant: {
+          firstname: data.firstName,
+          lastname: data.lastName,
+          dob: data.dob || undefined,
+        },
+      };
+
+      if (data.idType === 'nin') {
+        payload.idNumber = data.idNumber;
+        payload.idType = 'nin';
+      } else {
+        payload.idNumber = data.idNumber;
+        payload.idType = 'license';
+      }
+
+      this.logger.log(`Calling QoreID workflow endpoint: ${endpoint}`);
+      this.logger.log(`Payload: ${JSON.stringify(payload)}`);
 
       const response = await axios.post(
         endpoint,
-        {
-          firstname: data.firstName,
-          lastname: data.lastName,
-          dob: data.dob,
-        },
+        payload,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -82,7 +96,10 @@ export class VerificationService {
       );
 
       const result = response.data;
-      const verified = result?.status?.status === 'verified' || result?.summary?.identity_check?.status === 'EXACT_MATCH';
+      this.logger.log(`QoreID workflow response: ${JSON.stringify(result)}`);
+
+      const status = result?.status?.status || result?.status?.state;
+      const verified = status === 'verified' || status === 'VERIFIED' || status === 'complete' || status === 'EXACT_MATCH';
 
       await this.userRepo.update(userId, {
         kycStatus: verified ? 'approved' : 'rejected',
@@ -103,7 +120,8 @@ export class VerificationService {
         raw: result,
       };
     } catch (error: any) {
-      this.logger.error('QoreID verification error:', error?.response?.data || error.message);
+      this.logger.error('QoreID workflow error:', JSON.stringify(error?.response?.data) || error.message);
+      this.logger.error('QoreID workflow error status:', error?.response?.status);
 
       await this.userRepo.update(userId, {
         kycStatus: 'rejected',
