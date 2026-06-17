@@ -6,12 +6,13 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { BidsService } from './bids.service';
 import { BidsController } from './bids.controller';
 import { Bid } from './entities/bid.entity';
+import { User } from '../users/entities/user.entity';
 import { JobsModule } from '../jobs/jobs.module';
 import { PushModule } from '../push/push.module';
 import { EventsModule } from '../events/events.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Bid]), JobsModule, PushModule, EventsModule],
+  imports: [TypeOrmModule.forFeature([Bid, User]), JobsModule, PushModule, EventsModule],
   controllers: [BidsController],
   providers: [BidsService],
   exports: [BidsService],

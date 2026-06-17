@@ -8,6 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Bid, BidStatus } from './entities/bid.entity';
+import { User } from '../users/entities/user.entity';
 import { JobsService } from '../jobs/jobs.service';
 import { JobStatus } from '../jobs/entities/job.entity';
 import { PushService } from '../push/push.service';
@@ -18,12 +19,19 @@ export class BidsService {
   constructor(
     @InjectRepository(Bid)
     private bidsRepo: Repository<Bid>,
+    @InjectRepository(User)
+    private userRepo: Repository<User>,
     private jobsService: JobsService,
     private pushService: PushService,
     private eventsGateway: EventsGateway,
   ) {}
 
   async placeBid(transporterId: string, jobId: string, amount: number, note?: string): Promise<Bid> {
+    const transporter = await this.userRepo.findOne({ where: { id: transporterId } });
+    if (!transporter?.isVerified) {
+      throw new ForbiddenException('You must complete identity verification before bidding on jobs. Please go to Verification page.');
+    }
+
     const job = await this.jobsService.findById(jobId);
     if (job.status !== JobStatus.BIDDING) {
       throw new BadRequestException('This job is no longer accepting bids');
