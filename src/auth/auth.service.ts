@@ -33,6 +33,21 @@ export class AuthService {
       password: hashedPassword,
     });
 
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+
+    await this.usersService.updateProfile(user.id, {
+      emailOtp: otp,
+      emailOtpExpiry: otpExpiry,
+    } as any);
+
+    this.emailService.sendOtpEmail({
+      fullName: user.fullName,
+      email: user.email,
+    }, otp).catch((err) => {
+      this.logger.error('OTP email failed:', err?.message);
+    });
+
     this.emailService.sendWelcomeEmail({
       fullName: user.fullName,
       email: user.email,
@@ -155,6 +170,55 @@ export class AuthService {
   async logout(userId: string) {
     await this.usersService.updateRefreshToken(userId, null);
     return { message: 'Logged out successfully' };
+  }
+
+  async verifyEmailOtp(userId: string, otp: string) {
+    const user = await this.usersService.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+
+    if ((user as any).emailVerified) {
+      return { message: 'Email already verified', verified: true };
+    }
+
+    if (!(user as any).emailOtp || (user as any).emailOtp !== otp) {
+      throw new BadRequestException('Invalid verification code');
+    }
+
+    if (new Date() > new Date((user as any).emailOtpExpiry)) {
+      throw new BadRequestException('Verification code has expired. Please request a new one.');
+    }
+
+    await this.usersService.updateProfile(userId, {
+      emailVerified: true,
+      emailOtp: null,
+      emailOtpExpiry: null,
+    } as any);
+
+    return { message: 'Email verified successfully', verified: true };
+  }
+
+  async resendEmailOtp(userId: string) {
+    const user = await this.usersService.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+
+    if ((user as any).emailVerified) {
+      throw new BadRequestException('Email already verified');
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+
+    await this.usersService.updateProfile(userId, {
+      emailOtp: otp,
+      emailOtpExpiry: otpExpiry,
+    } as any);
+
+    await this.emailService.sendOtpEmail({
+      fullName: user.fullName,
+      email: user.email,
+    }, otp);
+
+    return { message: 'Verification code resent' };
   }
 
   async changePassword(userId: string, currentPassword: string, newPassword: string) {

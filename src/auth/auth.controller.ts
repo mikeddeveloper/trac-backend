@@ -84,6 +84,19 @@ export class AuthController {
     res.redirect(`${frontendUrl}/auth/google/callback?token=${accessToken}&user=${userStr}`);
   }
 
+  @Post('verify-email')
+  @UseGuards(AuthGuard('jwt'))
+  async verifyEmail(@Request() req: any, @Body() body: { otp: string }) {
+    return this.authService.verifyEmailOtp(req.user.id, body.otp);
+  }
+
+  @Post('resend-otp')
+  @UseGuards(AuthGuard('jwt'))
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
+  async resendOtp(@Request() req: any) {
+    return this.authService.resendEmailOtp(req.user.id);
+  }
+
   // GET /api/auth/me — returns full user from DB including fullName
   @Get('me')
   @UseGuards(AuthGuard('jwt'))
