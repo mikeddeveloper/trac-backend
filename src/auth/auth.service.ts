@@ -1,4 +1,4 @@
-import { Injectable, ConflictException, UnauthorizedException, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, ConflictException, UnauthorizedException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
@@ -10,6 +10,8 @@ import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private usersService: UsersService,
     private jwtService: JwtService,
@@ -35,7 +37,11 @@ export class AuthService {
       fullName: user.fullName,
       email: user.email,
       role: user.role,
-    }).catch(() => {});
+    }).then((result) => {
+      this.logger.log('Welcome email result: ' + JSON.stringify(result));
+    }).catch((error) => {
+      this.logger.error('Welcome email failed to send: ' + (error?.message || error));
+    });
 
     // Generate tokens
     const tokens = await this.generateTokens(user.id, user.email, user.role);
