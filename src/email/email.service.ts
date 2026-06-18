@@ -142,7 +142,7 @@ export class EmailService {
 
     try {
       const { data, error } = await this.resend.emails.send({
-        from: 'Trac Logistics <onboarding@resend.dev>',
+        from: 'Trac Logistics <admin@traclogistics.com.ng>',
         to: user.email,
         subject: `Welcome to Trac Logistics, ${firstName}! 🎉`,
         html,
@@ -218,7 +218,7 @@ export class EmailService {
 
     try {
       const { data, error } = await this.resend.emails.send({
-        from: 'Trac Logistics <onboarding@resend.dev>',
+        from: 'Trac Logistics <admin@traclogistics.com.ng>',
         to: user.email,
         subject: `Payment Confirmed - ₦${Number(payment.amount).toLocaleString()} | Trac Logistics`,
         html,
@@ -290,7 +290,7 @@ export class EmailService {
 
     try {
       const { data, error } = await this.resend.emails.send({
-        from: 'Trac Logistics <onboarding@resend.dev>',
+        from: 'Trac Logistics <admin@traclogistics.com.ng>',
         to: user.email,
         subject: `Delivery Confirmed! | Trac Logistics`,
         html,
