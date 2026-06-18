@@ -141,12 +141,20 @@ export class EmailService {
 </html>`;
 
     try {
-      await this.sendViaSmtp(
-        user.email,
-        `Welcome to Trac Logistics, ${firstName}! 🎉`,
+      const { data, error } = await this.resend.emails.send({
+        from: 'Trac Logistics <onboarding@resend.dev>',
+        to: user.email,
+        subject: `Welcome to Trac Logistics, ${firstName}! 🎉`,
         html,
-      );
-      return { success: true };
+      });
+
+      if (error) {
+        this.logger.error('Resend welcome email error:', JSON.stringify(error));
+        return { success: false, error };
+      }
+
+      this.logger.log(`✅ Welcome email sent to ${user.email}`);
+      return { success: true, data };
     } catch (error: any) {
       this.logger.error('Welcome email error:', error?.message);
       return { success: false };
@@ -209,12 +217,20 @@ export class EmailService {
 </html>`;
 
     try {
-      await this.sendViaSmtp(
-        user.email,
-        `Payment Confirmed - ₦${Number(payment.amount).toLocaleString()} | Trac Logistics`,
+      const { data, error } = await this.resend.emails.send({
+        from: 'Trac Logistics <onboarding@resend.dev>',
+        to: user.email,
+        subject: `Payment Confirmed - ₦${Number(payment.amount).toLocaleString()} | Trac Logistics`,
         html,
-      );
-      return { success: true };
+      });
+
+      if (error) {
+        this.logger.error('Resend payment email error:', JSON.stringify(error));
+        return { success: false, error };
+      }
+
+      this.logger.log(`✅ Payment email sent to ${user.email}`);
+      return { success: true, data };
     } catch (error: any) {
       this.logger.error('Payment email error:', error?.message);
       return { success: false };
@@ -273,12 +289,20 @@ export class EmailService {
 </html>`;
 
     try {
-      await this.sendViaSmtp(
-        user.email,
-        `Delivery Confirmed! | Trac Logistics`,
+      const { data, error } = await this.resend.emails.send({
+        from: 'Trac Logistics <onboarding@resend.dev>',
+        to: user.email,
+        subject: `Delivery Confirmed! | Trac Logistics`,
         html,
-      );
-      return { success: true };
+      });
+
+      if (error) {
+        this.logger.error('Resend delivery email error:', JSON.stringify(error));
+        return { success: false, error };
+      }
+
+      this.logger.log(`✅ Delivery email sent to ${user.email}`);
+      return { success: true, data };
     } catch (error: any) {
       this.logger.error('Delivery email error:', error?.message);
       return { success: false };
