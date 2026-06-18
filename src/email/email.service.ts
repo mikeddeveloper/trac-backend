@@ -1,11 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Resend } from 'resend';
+import * as nodemailer from 'nodemailer';
 
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
   private resend: Resend;
+  private transporter: any;
 
   constructor(private configService: ConfigService) {
     const apiKey = this.configService.get<string>('RESEND_API_KEY');
@@ -14,6 +16,36 @@ export class EmailService {
     }
     this.resend = new Resend(apiKey || 're_placeholder');
     this.logger.log(`Email service initialized. API key present: ${!!apiKey}`);
+
+    this.transporter = nodemailer.createTransport({
+      host: 'smtp.office365.com',
+      port: 587,
+      secure: false,
+      auth: {
+        user: this.configService.get('SMTP_USER'),
+        pass: this.configService.get('SMTP_PASS'),
+      },
+      tls: { ciphers: 'SSLv3' },
+    });
+
+    this.logger.log(`SMTP configured for: ${this.configService.get('SMTP_USER')}`);
+  }
+
+  private async sendViaSmtp(to: string, subject: string, html: string) {
+    try {
+      const info = await this.transporter.sendMail({
+        from: `"Trac Logistics" <${this.configService.get('SMTP_USER')}>`,
+        to,
+        subject,
+        html,
+      });
+      this.logger.log(`✅ SMTP email sent to ${to}, messageId: ${info.messageId}`);
+      return { success: true };
+    } catch (error: any) {
+      this.logger.error(`SMTP email error for ${to}:`, error?.message);
+      this.logger.error('SMTP error details:', JSON.stringify(error));
+      return { success: false };
+    }
   }
 
   async sendWelcomeEmail(user: {
@@ -24,12 +56,7 @@ export class EmailService {
     const firstName = user.fullName.split(' ')[0];
     const isTransporter = user.role === 'transporter';
 
-    try {
-      await this.resend.emails.send({
-        from: 'Trac Logistics <admin@traclogistics.com.ng>',
-        to: user.email,
-        subject: `Welcome to Trac Logistics, ${firstName}! 🎉`,
-        html: `
+    const html = `
 <!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
@@ -106,10 +133,14 @@ export class EmailService {
 
 </div>
 </body>
-</html>`,
-      });
+</html>`;
 
-      this.logger.log(`✅ Welcome email sent to ${user.email}`);
+    try {
+      await this.sendViaSmtp(
+        user.email,
+        `Welcome to Trac Logistics, ${firstName}! 🎉`,
+        html,
+      );
       return { success: true };
     } catch (error: any) {
       this.logger.error('Welcome email error:', error?.message);
@@ -125,12 +156,7 @@ export class EmailService {
     route: string;
   }) {
     const firstName = user.fullName.split(' ')[0];
-    try {
-      await this.resend.emails.send({
-        from: 'Trac Logistics <admin@traclogistics.com.ng>',
-        to: user.email,
-        subject: `Payment Confirmed - ₦${Number(payment.amount).toLocaleString()} | Trac Logistics`,
-        html: `
+    const html = `
 <!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
@@ -175,9 +201,14 @@ export class EmailService {
   </div>
 </div>
 </body>
-</html>`,
-      });
-      this.logger.log(`✅ Payment email sent to ${user.email}`);
+</html>`;
+
+    try {
+      await this.sendViaSmtp(
+        user.email,
+        `Payment Confirmed - ₦${Number(payment.amount).toLocaleString()} | Trac Logistics`,
+        html,
+      );
       return { success: true };
     } catch (error: any) {
       this.logger.error('Payment email error:', error?.message);
@@ -193,12 +224,7 @@ export class EmailService {
     amount: number;
   }) {
     const firstName = user.fullName.split(' ')[0];
-    try {
-      await this.resend.emails.send({
-        from: 'Trac Logistics <admin@traclogistics.com.ng>',
-        to: user.email,
-        subject: `Delivery Confirmed! | Trac Logistics`,
-        html: `
+    const html = `
 <!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
@@ -239,9 +265,14 @@ export class EmailService {
   </div>
 </div>
 </body>
-</html>`,
-      });
-      this.logger.log(`✅ Delivery email sent to ${user.email}`);
+</html>`;
+
+    try {
+      await this.sendViaSmtp(
+        user.email,
+        `Delivery Confirmed! | Trac Logistics`,
+        html,
+      );
       return { success: true };
     } catch (error: any) {
       this.logger.error('Delivery email error:', error?.message);
