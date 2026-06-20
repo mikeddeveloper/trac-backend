@@ -67,7 +67,7 @@ export class VerificationService {
       this.tokenExpiry = Date.now() + (50 * 60 * 1000);
       this.logger.log(`Token received successfully, length: ${token.length}`);
 
-      return this.accessToken;
+      return this.accessToken || '';
     } catch (error: any) {
       this.logger.error('QoreID token error status:', error?.response?.status);
       this.logger.error('QoreID token error data:', JSON.stringify(error?.response?.data));
