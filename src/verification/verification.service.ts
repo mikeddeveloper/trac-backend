@@ -27,34 +27,52 @@ export class VerificationService {
 
   private async getAccessToken(): Promise<string> {
     if (this.accessToken && Date.now() < this.tokenExpiry) {
-      this.logger.log('Using cached QoreID access token');
+      this.logger.log('Using cached QoreID token');
       return this.accessToken;
     }
 
-    this.logger.log(`Requesting QoreID token from: ${this.baseUrl}/token`);
-    this.logger.log(`Using clientId: ${this.clientId}`);
-    this.logger.log(`Secret key length: ${this.secretKey?.length || 0}`);
-
     try {
-      const response = await axios.post(`${this.baseUrl}/token`, {
-        clientId: this.clientId,
-        secret: this.secretKey,
-      });
+      this.logger.log(`Requesting QoreID token...`);
+      this.logger.log(`ClientId: ${this.clientId}`);
 
-      this.logger.log(`QoreID token response: ${JSON.stringify(response.data)}`);
+      const response = await axios.post(
+        `${this.baseUrl}/token`,
+        {
+          clientId: this.clientId,
+          secret: this.secretKey,
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+        }
+      );
 
-      this.accessToken = response.data.accessToken;
+      this.logger.log(`Token response status: ${response.status}`);
+      this.logger.log(`Token response keys: ${Object.keys(response.data).join(', ')}`);
+
+      const token = response.data.accessToken
+        || response.data.token
+        || response.data.access_token
+        || response.data.data?.accessToken
+        || response.data.data?.token;
+
+      if (!token) {
+        this.logger.error('No token found in response:', JSON.stringify(response.data));
+        throw new Error('No token returned from QoreID');
+      }
+
+      this.accessToken = token;
       this.tokenExpiry = Date.now() + (50 * 60 * 1000);
+      this.logger.log(`Token received successfully, length: ${token.length}`);
 
-      this.logger.log(`Token received, length: ${this.accessToken?.length || 0}`);
-
-      return this.accessToken || '';
+      return this.accessToken;
     } catch (error: any) {
-      this.logger.error('QoreID token request FAILED');
-      this.logger.error(`Token error status: ${error?.response?.status}`);
-      this.logger.error(`Token error data: ${JSON.stringify(error?.response?.data)}`);
-      this.logger.error(`Token error message: ${error?.message}`);
-      throw new BadRequestException('Failed to authenticate with verification service');
+      this.logger.error('QoreID token error status:', error?.response?.status);
+      this.logger.error('QoreID token error data:', JSON.stringify(error?.response?.data));
+      this.logger.error('QoreID token error message:', error?.message);
+      throw new BadRequestException('Failed to get QoreID access token');
     }
   }
 
@@ -123,8 +141,12 @@ export class VerificationService {
         raw: result,
       };
     } catch (error: any) {
-      this.logger.error('QoreID verification error:', JSON.stringify(error?.response?.data) || error.message);
-      this.logger.error('QoreID verification error status:', error?.response?.status);
+      this.logger.error('QoreID full error response:', JSON.stringify({
+        status: error?.response?.status,
+        data: error?.response?.data,
+        message: error?.message,
+        headers: error?.response?.headers,
+      }));
 
       await this.userRepo.update(userId, {
         kycStatus: 'rejected',
