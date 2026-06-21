@@ -81,6 +81,12 @@ export class User {
   @Column({ nullable: true })
   refreshToken!: string;
 
+  @Column({ nullable: true })
+  passwordResetToken!: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  passwordResetExpiry!: Date;
+
   // ─── KYC ──────────────────────────────────────────────────────────────────
   @Column({ default: false })
   ninVerified!: boolean;

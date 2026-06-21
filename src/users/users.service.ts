@@ -51,6 +51,10 @@ export class UsersService {
     return this.findById(id);
   }
 
+  async findByPasswordResetToken(token: string): Promise<User | null> {
+    return this.usersRepo.findOne({ where: { passwordResetToken: token } as any });
+  }
+
   async findAll(): Promise<User[]> {
     return this.usersRepo.find();
   }

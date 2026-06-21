@@ -221,6 +221,48 @@ export class AuthService {
     return { message: 'Verification code resent' };
   }
 
+  async forgotPassword(email: string) {
+    const user = await this.usersService.findByEmail(email);
+    if (!user) {
+      return { message: 'If that email is registered, a reset link has been sent.' };
+    }
+
+    const crypto = require('crypto');
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiry = new Date(Date.now() + 60 * 60 * 1000);
+
+    await this.usersService.updateProfile(user.id, {
+      passwordResetToken: token,
+      passwordResetExpiry: expiry,
+    } as any);
+
+    const frontendUrl = this.configService.get('FRONTEND_URL') || 'https://trac-logistics-web-app.vercel.app';
+    const resetUrl = `${frontendUrl}/reset-password?token=${token}`;
+
+    this.emailService.sendPasswordResetEmail({ fullName: user.fullName, email: user.email }, resetUrl)
+      .catch(err => this.logger.error('Password reset email failed:', err?.message));
+
+    return { message: 'If that email is registered, a reset link has been sent.' };
+  }
+
+  async resetPassword(token: string, newPassword: string) {
+    const user = await this.usersService.findByPasswordResetToken(token);
+    if (!user) throw new BadRequestException('Invalid or expired reset link.');
+
+    if (new Date() > new Date((user as any).passwordResetExpiry)) {
+      throw new BadRequestException('Reset link has expired. Please request a new one.');
+    }
+
+    const hashed = await bcrypt.hash(newPassword, 12);
+    await this.usersService.updateProfile(user.id, {
+      password: hashed,
+      passwordResetToken: null,
+      passwordResetExpiry: null,
+    } as any);
+
+    return { message: 'Password reset successfully. You can now log in.' };
+  }
+
   async changePassword(userId: string, currentPassword: string, newPassword: string) {
     const user = await this.usersService.findById(userId);
     if (!user) throw new NotFoundException('User not found');

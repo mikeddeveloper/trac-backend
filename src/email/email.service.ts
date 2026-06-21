@@ -282,6 +282,58 @@ export class EmailService {
     }
   }
 
+  async sendPasswordResetEmail(user: { fullName: string; email: string }, resetUrl: string) {
+    const firstName = user.fullName.split(' ')[0];
+    const html = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#F8FAFC;font-family:'Helvetica Neue',Arial,sans-serif;">
+<div style="max-width:600px;margin:0 auto;padding:40px 20px;">
+  <div style="background:linear-gradient(135deg,#1E3A5F,#2A4F7C);border-radius:16px;padding:32px;text-align:center;margin-bottom:24px;">
+    <h1 style="color:#6EC89A;font-size:1.8rem;font-weight:900;margin:0;">Trac Logistics</h1>
+  </div>
+  <div style="background:white;border-radius:16px;padding:32px;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,0.06);">
+    <div style="width:56px;height:56px;border-radius:50%;background:#1E3A5F;margin:0 auto 16px;display:flex;align-items:center;justify-content:center;">
+      <span style="font-size:1.5rem;">🔒</span>
+    </div>
+    <h2 style="color:#1E3A5F;font-size:1.3rem;font-weight:800;margin:0 0 8px;">Reset Your Password</h2>
+    <p style="color:#64748B;font-size:0.9rem;margin:0 0 24px;line-height:1.6;">
+      Hi ${firstName}, we received a request to reset your Trac Logistics password. Click the button below to create a new password.
+    </p>
+    <a href="${resetUrl}"
+       style="display:inline-block;background:#1E3A5F;color:white;padding:14px 32px;border-radius:12px;font-weight:800;font-size:0.95rem;text-decoration:none;margin-bottom:24px;">
+      Reset Password →
+    </a>
+    <p style="color:#94A3B8;font-size:0.78rem;margin:0 0 8px;">This link expires in 1 hour.</p>
+    <p style="color:#94A3B8;font-size:0.78rem;margin:0;">If you didn't request this, you can safely ignore this email.</p>
+  </div>
+  <div style="text-align:center;padding:20px 0;">
+    <p style="color:#94A3B8;font-size:0.75rem;margin:0;">© 2026 Trac Logistics · admin@trac.com.ng</p>
+  </div>
+</div>
+</body>
+</html>`;
+
+    try {
+      const { error } = await this.resend.emails.send({
+        from: 'Trac Logistics <admin@traclogistics.com.ng>',
+        to: user.email,
+        subject: `Reset your Trac Logistics password`,
+        html,
+      });
+      if (error) {
+        this.logger.error('Password reset email error:', JSON.stringify(error));
+        return { success: false };
+      }
+      this.logger.log(`✅ Password reset email sent to ${user.email}`);
+      return { success: true };
+    } catch (error: any) {
+      this.logger.error('Password reset email error:', error?.message);
+      return { success: false };
+    }
+  }
+
   async sendDeliveryConfirmedEmail(user: {
     fullName: string;
     email: string;

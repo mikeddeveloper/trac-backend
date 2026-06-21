@@ -84,6 +84,17 @@ export class AuthController {
     res.redirect(`${frontendUrl}/auth/google/callback?token=${accessToken}&user=${userStr}`);
   }
 
+  @Post('forgot-password')
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
+  async forgotPassword(@Body() body: { email: string }) {
+    return this.authService.forgotPassword(body.email);
+  }
+
+  @Post('reset-password')
+  async resetPassword(@Body() body: { token: string; newPassword: string }) {
+    return this.authService.resetPassword(body.token, body.newPassword);
+  }
+
   @Post('verify-email')
   @UseGuards(AuthGuard('jwt'))
   async verifyEmail(@Request() req: any, @Body() body: { otp: string }) {
