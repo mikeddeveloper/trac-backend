@@ -97,6 +97,22 @@ export class AuthController {
     return this.authService.resendEmailOtp(req.user.id);
   }
 
+  @Get('server-ip')
+  async getServerIp() {
+    try {
+      const https = require('https');
+      return new Promise((resolve) => {
+        https.get('https://api.ipify.org?format=json', (res: any) => {
+          let data = '';
+          res.on('data', (chunk: any) => data += chunk);
+          res.on('end', () => resolve(JSON.parse(data)));
+        }).on('error', () => resolve({ ip: 'Could not fetch' }));
+      });
+    } catch {
+      return { ip: 'Error fetching IP' };
+    }
+  }
+
   // GET /api/auth/me — returns full user from DB including fullName
   @Get('me')
   @UseGuards(AuthGuard('jwt'))
