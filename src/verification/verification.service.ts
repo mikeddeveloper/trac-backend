@@ -24,7 +24,7 @@ export class VerificationService {
     this.logger.log(`QoreID initialized - clientId: ${this.clientId}`);
   }
 
-  private async getAccessToken(): Promise<string> {
+  async getAccessToken(): Promise<string> {
     const manualToken = this.configService.get<string>('QOREID_BEARER_TOKEN');
     if (manualToken) {
       this.logger.log('Using manual bearer token from environment variable');
@@ -170,7 +170,7 @@ export class VerificationService {
     }
   }
 
-  async confirmVerification(userId: string, verifiedData: any) {
+  async confirmVerification(userId: string, _verifiedData: any) {
     await this.userRepo.update(userId, {
       isVerified: true,
       kycStatus: 'approved',

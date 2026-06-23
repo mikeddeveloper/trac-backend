@@ -20,6 +20,13 @@ export class VerificationController {
     return this.verificationService.initiateVerification(req.user.id, body);
   }
 
+  @Get('token')
+  @UseGuards(AuthGuard('jwt'))
+  async getToken() {
+    const token = await this.verificationService.getAccessToken();
+    return { token };
+  }
+
   @Get('status')
   @UseGuards(AuthGuard('jwt'))
   async status(@Request() req: any) {
