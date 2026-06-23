@@ -175,6 +175,20 @@ export class VerificationService {
     }
   }
 
+  async confirmVerification(userId: string, verifiedData: any) {
+    await this.userRepo.update(userId, {
+      isVerified: true,
+      kycStatus: 'approved',
+      kycTier: 1,
+      kycCompletedAt: new Date(),
+      ninVerified: true,
+    } as any);
+
+    this.logger.log(`✅ User ${userId} verified via frontend QoreID call`);
+
+    return { verified: true };
+  }
+
   async getVerificationStatus(userId: string) {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) throw new BadRequestException('User not found');
