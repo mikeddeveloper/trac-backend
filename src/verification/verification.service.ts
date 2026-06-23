@@ -11,7 +11,7 @@ export class VerificationService {
   private baseUrl: string = 'https://api.qoreid.com';
   private clientId: string = '';
   private secretKey: string = '';
-  private accessToken: string | null = null;
+  private accessToken: string = '';
   private tokenExpiry: number = 0;
 
   constructor(
@@ -38,6 +38,7 @@ export class VerificationService {
 
     try {
       this.logger.log('Generating new QoreID token via Keycloak...');
+      this.logger.log(`ClientId: ${this.clientId}`);
 
       const params = new URLSearchParams();
       params.append('grant_type', 'client_credentials');
@@ -48,30 +49,31 @@ export class VerificationService {
         'https://auth.qoreid.com/auth/realms/qoreid/protocol/openid-connect/token',
         params.toString(),
         {
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         }
       );
 
-      const token = response.data.accessToken
+      this.logger.log(`Token response keys: ${Object.keys(response.data).join(', ')}`);
+
+      const token: string = response.data.accessToken
         || response.data.access_token
-        || response.data.token;
+        || response.data.token
+        || '';
 
       if (!token) {
-        this.logger.error('No access_token in Keycloak response:', JSON.stringify(response.data));
+        this.logger.error('No token in response:', JSON.stringify(response.data));
         throw new Error('No token returned from QoreID');
       }
 
       this.accessToken = token;
       this.tokenExpiry = Date.now() + (110 * 60 * 1000);
-      this.logger.log(`✅ New QoreID token generated, length: ${token.length}`);
+      this.logger.log(`✅ Token generated, length: ${token.length}`);
 
       return this.accessToken;
     } catch (error: any) {
-      this.logger.error('QoreID token generation failed:', JSON.stringify(error?.response?.data));
+      this.logger.error('Token generation failed:', JSON.stringify(error?.response?.data));
       this.logger.error('Token error:', error?.message);
-      throw new BadRequestException('Failed to generate QoreID access token. Please try again.');
+      throw new BadRequestException('Failed to generate QoreID access token.');
     }
   }
 
@@ -126,11 +128,11 @@ export class VerificationService {
         isVerified: verified,
         kycTier: verified ? 1 : 0,
         kycCompletedAt: verified ? new Date() : null,
-        ninVerified: data.idType === 'nin' ? verified : (user as any).ninVerified || false,
-        licenseVerified: data.idType === 'license' ? verified : (user as any).licenseVerified || false,
+        ninVerified: data.idType === 'nin' ? verified : ((user as any).ninVerified || false),
+        licenseVerified: data.idType === 'license' ? verified : ((user as any).licenseVerified || false),
       } as any);
 
-      this.logger.log(`QoreID verification for ${user.email}: ${verified ? 'PASSED ✅' : 'FAILED ❌'}`);
+      this.logger.log(`QoreID result for ${user.email}: ${verified ? 'PASSED ✅' : 'FAILED ❌'}`);
 
       return {
         verified,
@@ -144,29 +146,22 @@ export class VerificationService {
           gender: result?.nin?.gender,
           birthdate: result?.nin?.birthdate,
           stateOfOrigin: result?.nin?.state_of_origin,
-          photo: result?.nin?.photo || null,
         } : null,
       };
     } catch (error: any) {
-      this.logger.error('QoreID verification error:', JSON.stringify({
+      this.logger.error('QoreID error:', JSON.stringify({
         status: error?.response?.status,
         data: error?.response?.data,
         message: error?.message,
       }));
 
       if (error?.response?.status === 401) {
-        this.accessToken = null;
+        this.accessToken = '';
         this.tokenExpiry = 0;
         throw new BadRequestException('Authentication failed. Please try again.');
       }
 
-      if (error?.response?.status === 403) {
-        throw new BadRequestException('Access denied. Please contact support.');
-      }
-
-      await this.userRepo.update(userId, {
-        kycStatus: 'rejected',
-      } as any);
+      await this.userRepo.update(userId, { kycStatus: 'rejected' } as any);
 
       throw new BadRequestException(
         error?.response?.data?.message ||
@@ -184,9 +179,8 @@ export class VerificationService {
       ninVerified: true,
     } as any);
 
-    this.logger.log(`✅ User ${userId} verified via frontend QoreID call`);
-
-    return { verified: true };
+    this.logger.log(`✅ User ${userId} confirmed verified via frontend QoreID call`);
+    return { verified: true, message: 'Identity verified successfully!' };
   }
 
   async getVerificationStatus(userId: string) {
