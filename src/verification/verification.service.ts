@@ -54,7 +54,9 @@ export class VerificationService {
         }
       );
 
-      const token = response.data.access_token;
+      const token = response.data.accessToken
+        || response.data.access_token
+        || response.data.token;
 
       if (!token) {
         this.logger.error('No access_token in Keycloak response:', JSON.stringify(response.data));
