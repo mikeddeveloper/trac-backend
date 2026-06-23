@@ -20,6 +20,25 @@ export class VerificationController {
     return this.verificationService.initiateVerification(req.user.id, body);
   }
 
+  @Post('confirm')
+  @UseGuards(AuthGuard('jwt'))
+  async confirmVerification(@Request() req: any, @Body() body: {
+    verified: boolean;
+    nin: string;
+    verifiedData: any;
+  }) {
+    if (!body.verified) {
+      throw new BadRequestException('Verification not confirmed');
+    }
+
+    await this.verificationService.confirmVerification(
+      req.user.id,
+      body.verifiedData
+    );
+
+    return { verified: true, message: 'Identity verified successfully!' };
+  }
+
   @Get('status')
   @UseGuards(AuthGuard('jwt'))
   async status(@Request() req: any) {
