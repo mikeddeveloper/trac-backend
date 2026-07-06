@@ -4,11 +4,15 @@
 import { Controller, Get, Patch, Delete, Param, Query, Body, Req, Request, UseGuards, ForbiddenException } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { AdminService } from './admin.service';
+import { VerificationService } from '../verification/verification.service';
 
 @Controller('admin')
 @UseGuards(AuthGuard('jwt'))
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly verificationService: VerificationService,
+  ) {}
 
   // ─── GET /admin/overview ─────────────────────────────────────────────────────
   @Get('overview')
@@ -273,5 +277,33 @@ export class AdminController {
   async getActivity(@Request() req: any) {
     if (req.user.role !== 'admin') throw new ForbiddenException();
     return this.adminService.getActivity();
+  }
+
+  // ─── GET /admin/license/pending ───────────────────────────────────────────────
+  @Get('license/pending')
+  @UseGuards(AuthGuard('jwt'))
+  async getPendingLicenses(@Request() req: any) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.getPendingLicenses();
+  }
+
+  // ─── PATCH /admin/license/:userId/approve ────────────────────────────────────
+  @Patch('license/:userId/approve')
+  @UseGuards(AuthGuard('jwt'))
+  async approveLicense(@Request() req: any, @Param('userId') userId: string) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.verificationService.approveLicense(userId);
+  }
+
+  // ─── PATCH /admin/license/:userId/reject ─────────────────────────────────────
+  @Patch('license/:userId/reject')
+  @UseGuards(AuthGuard('jwt'))
+  async rejectLicense(
+    @Request() req: any,
+    @Param('userId') userId: string,
+    @Body() body: { reason: string },
+  ) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.verificationService.rejectLicense(userId, body.reason);
   }
 }

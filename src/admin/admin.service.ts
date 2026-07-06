@@ -116,11 +116,36 @@ export class AdminService {
   // ─── Resolve dispute ─────────────────────────────────────────────────────────
 
   async resolveDispute(id: string, resolutionNote: string) {
+    const dispute = await this.disputeRepo.findOne({ where: { id } });
+
     await this.disputeRepo.update(id, {
       status: DisputeStatus.RESOLVED,
       resolutionNote,
       resolvedAt: new Date(),
     });
+
+    if (dispute) {
+      const job = await this.jobRepo.findOne({ where: { id: dispute.jobId } });
+
+      const notifyIds = new Set<string>();
+      if (dispute.raisedById) notifyIds.add(dispute.raisedById);
+      if (job?.customerId) notifyIds.add(job.customerId);
+      if (job?.transporterId) notifyIds.add(job.transporterId);
+
+      for (const userId of notifyIds) {
+        this.eventsGateway.notifyUser(userId, 'dispute:resolved', {
+          disputeId: id,
+          resolutionNote,
+          message: 'Your dispute has been resolved by Trac support',
+        });
+        await this.pushService.sendToUser(userId, {
+          title: '✅ Dispute Resolved',
+          body: `Your delivery dispute has been resolved: ${resolutionNote}`,
+          icon: '/icon-192.png',
+        }).catch(() => {});
+      }
+    }
+
     return this.disputeRepo.findOne({ where: { id } });
   }
 
@@ -693,6 +718,29 @@ export class AdminService {
     ]
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
       .slice(0, 20);
+  }
+
+  // ─── Pending license submissions ─────────────────────────────────────────────
+
+  async getPendingLicenses() {
+    const pending = await this.userRepo.find({
+      where: { role: 'transporter' as any, licenseStatus: 'pending' } as any,
+      order: { licenseSubmittedAt: 'DESC' } as any,
+    });
+
+    return pending.map(u => ({
+      id: u.id,
+      fullName: u.fullName,
+      email: u.email,
+      phone: u.phone,
+      licenseNumber: (u as any).licenseNumber,
+      licenseExpiry: (u as any).licenseExpiry,
+      licenseStatus: (u as any).licenseStatus,
+      licenseSubmittedAt: (u as any).licenseSubmittedAt,
+      vehicleType: u.vehicleType,
+      avatarUrl: u.avatarUrl,
+      kycStatus: (u as any).kycStatus,
+    }));
   }
 
   // ─── Pending verifications ────────────────────────────────────────────────────

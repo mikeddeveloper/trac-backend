@@ -58,6 +58,15 @@ export class User {
   licenseNumber!: string;
 
   @Column({ nullable: true })
+  licenseExpiry!: string;
+
+  @Column({ nullable: true, default: 'pending' })
+  licenseStatus!: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  licenseSubmittedAt!: Date;
+
+  @Column({ nullable: true })
   companyName!: string;
 
   @Column({ nullable: true })

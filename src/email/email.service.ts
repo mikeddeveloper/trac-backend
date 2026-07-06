@@ -334,6 +334,113 @@ export class EmailService {
     }
   }
 
+  async sendLicenseApprovedEmail(user: { fullName: string; email: string }) {
+    const firstName = user.fullName.split(' ')[0];
+    const html = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#F8FAFC;font-family:'Helvetica Neue',Arial,sans-serif;">
+<div style="max-width:600px;margin:0 auto;padding:40px 20px;">
+  <div style="background:linear-gradient(135deg,#1E3A5F,#2A4F7C);border-radius:16px;padding:32px;text-align:center;margin-bottom:24px;">
+    <h1 style="color:#6EC89A;font-size:1.8rem;font-weight:900;margin:0;">Trac Logistics</h1>
+  </div>
+  <div style="background:white;border-radius:16px;padding:32px;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,0.06);">
+    <div style="font-size:3rem;margin-bottom:16px;">✅</div>
+    <h2 style="color:#1E3A5F;font-size:1.4rem;font-weight:800;margin:0 0 8px;">License Verified, ${firstName}!</h2>
+    <p style="color:#64748B;font-size:0.9rem;line-height:1.6;margin:0 0 24px;">
+      Your driver license has been verified by our admin team. You now have full access to the Trac Marketplace dashboard and can start bidding on delivery jobs!
+    </p>
+    <a href="https://www.traclogistics.com.ng/dashboard/transporter"
+       style="display:inline-block;background:#6EC89A;color:#1E3A5F;padding:14px 32px;border-radius:12px;font-weight:800;font-size:1rem;text-decoration:none;margin-bottom:24px;">
+      Go to Dashboard →
+    </a>
+    <div style="background:#F0FDF4;border-radius:12px;padding:16px;margin-bottom:16px;">
+      <p style="color:#15803D;font-weight:700;margin:0 0 8px;">✅ Verified Transporter</p>
+      <p style="color:#64748B;font-size:0.85rem;margin:0;">You can now bid on jobs, accept deliveries and earn money on Trac Marketplace.</p>
+    </div>
+    <p style="color:#94A3B8;font-size:0.78rem;margin:0;">Welcome to the Trac family! Start earning today.</p>
+  </div>
+  <div style="text-align:center;padding:20px 0;">
+    <p style="color:#94A3B8;font-size:0.75rem;margin:0;">© 2026 Trac Logistics · admin@traclogistics.com.ng</p>
+    <p style="color:#CBD5E1;font-size:0.7rem;margin:4px 0 0;">Made with ❤️ in Nigeria 🇳🇬</p>
+  </div>
+</div>
+</body>
+</html>`;
+
+    try {
+      const { error } = await this.resend.emails.send({
+        from: 'Trac Logistics <admin@traclogistics.com.ng>',
+        to: user.email,
+        subject: '🎉 Your License Has Been Verified | Trac Logistics',
+        html,
+      });
+      if (error) {
+        this.logger.error('License approved email error:', JSON.stringify(error));
+        return { success: false };
+      }
+      this.logger.log(`✅ License approved email sent to ${user.email}`);
+      return { success: true };
+    } catch (error: any) {
+      this.logger.error('License approved email error:', error?.message);
+      return { success: false };
+    }
+  }
+
+  async sendLicenseRejectedEmail(user: { fullName: string; email: string }, reason: string) {
+    const firstName = user.fullName.split(' ')[0];
+    const html = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#F8FAFC;font-family:'Helvetica Neue',Arial,sans-serif;">
+<div style="max-width:600px;margin:0 auto;padding:40px 20px;">
+  <div style="background:linear-gradient(135deg,#1E3A5F,#2A4F7C);border-radius:16px;padding:32px;text-align:center;margin-bottom:24px;">
+    <h1 style="color:#6EC89A;font-size:1.8rem;font-weight:900;margin:0;">Trac Logistics</h1>
+  </div>
+  <div style="background:white;border-radius:16px;padding:32px;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,0.06);">
+    <div style="font-size:3rem;margin-bottom:16px;">❌</div>
+    <h2 style="color:#1E3A5F;font-size:1.4rem;font-weight:800;margin:0 0 8px;">License Verification Failed</h2>
+    <p style="color:#64748B;font-size:0.9rem;line-height:1.6;margin:0 0 16px;">
+      Hi ${firstName}, unfortunately your driver license could not be verified.
+    </p>
+    <div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:12px;padding:16px;margin-bottom:24px;text-align:left;">
+      <p style="color:#991B1B;font-weight:700;margin:0 0 4px;">Reason:</p>
+      <p style="color:#991B1B;font-size:0.85rem;margin:0;">${reason}</p>
+    </div>
+    <a href="https://www.traclogistics.com.ng/dashboard/license"
+       style="display:inline-block;background:#1E3A5F;color:white;padding:14px 32px;border-radius:12px;font-weight:800;font-size:1rem;text-decoration:none;margin-bottom:16px;">
+      Resubmit License →
+    </a>
+    <p style="color:#94A3B8;font-size:0.78rem;margin:0;">If you have questions contact us at admin@traclogistics.com.ng</p>
+  </div>
+  <div style="text-align:center;padding:20px 0;">
+    <p style="color:#94A3B8;font-size:0.75rem;margin:0;">© 2026 Trac Logistics · admin@traclogistics.com.ng</p>
+  </div>
+</div>
+</body>
+</html>`;
+
+    try {
+      const { error } = await this.resend.emails.send({
+        from: 'Trac Logistics <admin@traclogistics.com.ng>',
+        to: user.email,
+        subject: '❌ License Verification Failed | Trac Logistics',
+        html,
+      });
+      if (error) {
+        this.logger.error('License rejected email error:', JSON.stringify(error));
+        return { success: false };
+      }
+      this.logger.log(`✅ License rejected email sent to ${user.email}`);
+      return { success: true };
+    } catch (error: any) {
+      this.logger.error('License rejected email error:', error?.message);
+      return { success: false };
+    }
+  }
+
   async sendDeliveryConfirmedEmail(user: {
     fullName: string;
     email: string;

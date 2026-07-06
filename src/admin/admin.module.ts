@@ -12,9 +12,10 @@ import { User } from '../users/entities/user.entity';
 import { Rating } from '../ratings/entities/rating.entity';
 import { PushModule } from '../push/push.module';
 import { EventsModule } from '../events/events.module';
+import { VerificationModule } from '../verification/verification.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Job, Payment, Dispute, User, Rating]), PushModule, EventsModule],
+  imports: [TypeOrmModule.forFeature([Job, Payment, Dispute, User, Rating]), PushModule, EventsModule, VerificationModule],
   controllers: [AdminController],
   providers: [AdminService],
   exports: [AdminService],

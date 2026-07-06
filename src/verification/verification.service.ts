@@ -3,6 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../users/entities/user.entity';
+import { EventsGateway } from '../events/events.gateway';
+import { PushService } from '../push/push.service';
+import { EmailService } from '../email/email.service';
 import axios from 'axios';
 
 @Injectable()
@@ -17,6 +20,9 @@ export class VerificationService {
   constructor(
     private configService: ConfigService,
     @InjectRepository(User) private userRepo: Repository<User>,
+    private eventsGateway: EventsGateway,
+    private pushService: PushService,
+    private emailService: EmailService,
   ) {
     this.clientId = this.configService.get('QOREID_COLLECTION_CLIENT_ID') || '';
     this.secretKey = this.configService.get('QOREID_COLLECTION_SECRET_KEY') || '';
@@ -183,6 +189,115 @@ export class VerificationService {
     return { verified: true, message: 'Identity verified successfully!' };
   }
 
+  // ─── License submission ───────────────────────────────────────────────────────
+
+  async submitLicense(userId: string, data: {
+    licenseNumber: string;
+    licenseExpiry: string;
+    vehicleType: string;
+  }) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new BadRequestException('User not found');
+
+    if (!(user as any).ninVerified && !user.isVerified) {
+      throw new BadRequestException('Please complete NIN verification first');
+    }
+
+    if ((user as any).licenseStatus === 'approved') {
+      throw new BadRequestException('License already verified');
+    }
+
+    await this.userRepo.update(userId, {
+      licenseNumber: data.licenseNumber,
+      licenseExpiry: data.licenseExpiry,
+      vehicleType: data.vehicleType,
+      licenseStatus: 'pending',
+      licenseSubmittedAt: new Date(),
+    } as any);
+
+    this.logger.log(`📄 License submitted by ${user.email}`);
+
+    return {
+      message: 'License submitted successfully. Admin will review within 24 hours.',
+      licenseStatus: 'pending',
+    };
+  }
+
+  async getLicenseStatus(userId: string) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new BadRequestException('User not found');
+
+    return {
+      licenseStatus: (user as any).licenseStatus || 'not_submitted',
+      licenseNumber: (user as any).licenseNumber || null,
+      licenseExpiry: (user as any).licenseExpiry || null,
+      licenseSubmittedAt: (user as any).licenseSubmittedAt || null,
+      isVerified: user.isVerified,
+      ninVerified: (user as any).ninVerified || false,
+    };
+  }
+
+  // ─── License approval (called by admin) ──────────────────────────────────────
+
+  async approveLicense(userId: string) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new BadRequestException('User not found');
+
+    await this.userRepo.update(userId, {
+      licenseStatus: 'approved',
+      licenseVerified: true,
+      kycTier: 2,
+    } as any);
+
+    this.eventsGateway.notifyUser(userId, 'license:approved', {
+      message: 'Your driver license has been verified! You can now access the full dashboard.',
+    });
+
+    await this.pushService.sendToUser(userId, {
+      title: '✅ License Verified!',
+      body: 'Your driver license has been approved. You now have full dashboard access.',
+      icon: '/icon-192.png',
+    }).catch(() => {});
+
+    await this.emailService.sendLicenseApprovedEmail({
+      fullName: user.fullName,
+      email: user.email,
+    }).catch(() => {});
+
+    this.logger.log(`✅ License approved for ${user.email}`);
+    return { message: 'License approved successfully' };
+  }
+
+  async rejectLicense(userId: string, reason: string) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new BadRequestException('User not found');
+
+    await this.userRepo.update(userId, {
+      licenseStatus: 'rejected',
+    } as any);
+
+    this.eventsGateway.notifyUser(userId, 'license:rejected', {
+      message: `License rejected: ${reason}`,
+      reason,
+    });
+
+    await this.pushService.sendToUser(userId, {
+      title: '❌ License Rejected',
+      body: `Your license was rejected: ${reason}. Please resubmit.`,
+      icon: '/icon-192.png',
+    }).catch(() => {});
+
+    await this.emailService.sendLicenseRejectedEmail({
+      fullName: user.fullName,
+      email: user.email,
+    }, reason).catch(() => {});
+
+    this.logger.log(`❌ License rejected for ${user.email}: ${reason}`);
+    return { message: 'License rejected' };
+  }
+
+  // ─── Status ───────────────────────────────────────────────────────────────────
+
   async getVerificationStatus(userId: string) {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) throw new BadRequestException('User not found');
@@ -193,6 +308,7 @@ export class VerificationService {
       kycTier: (user as any).kycTier || 0,
       ninVerified: (user as any).ninVerified || false,
       licenseVerified: (user as any).licenseVerified || false,
+      licenseStatus: (user as any).licenseStatus || 'not_submitted',
       kycCompletedAt: (user as any).kycCompletedAt || null,
     };
   }

@@ -15,6 +15,7 @@ import axios from 'axios';
 import * as crypto from 'crypto';
 import { Payment, PaymentStatus, PaymentType } from './entities/payment.entity';
 import { EventsGateway } from '../events/events.gateway';
+import { PushService } from '../push/push.service';
 import { EmailService } from '../email/email.service';
 
 @Injectable()
@@ -33,6 +34,7 @@ export class PaymentsService {
     @InjectRepository(Payment)
     private paymentRepo: Repository<Payment>,
     private eventsGateway: EventsGateway,
+    private pushService: PushService,
     private emailService: EmailService,
   ) {}
 
@@ -208,6 +210,13 @@ export class PaymentsService {
         message: `Customer has paid ₦${Number(payment.amount).toLocaleString()}. Proceed to pickup!`,
         reference: payment.reference,
       });
+      await this.pushService.sendToUser(job.transporterId, {
+        title: '💰 Payment Confirmed',
+        body: `Customer paid ₦${Number(payment.amount).toLocaleString()}. Head to pickup now!`,
+        url: '/dashboard/tracking',
+        tag: 'payment',
+        icon: '/icons/icon-192x192.png',
+      }).catch(() => {});
     }
 
     try {
@@ -228,6 +237,21 @@ export class PaymentsService {
     const { reference } = data;
     this.logger.log(`🏦 transfer.success: ref=${reference}`);
     await this.paymentRepo.update({ reference }, { status: PaymentStatus.RELEASED });
+
+    const payment = await this.paymentRepo.findOne({ where: { reference } });
+    if (payment?.jobId) {
+      const job = await this.paymentRepo.manager.findOne('Job', { where: { id: payment.jobId } }) as any;
+      if (job?.transporterId) {
+        const amount = Number(payment.transporterPayout || payment.amount).toLocaleString('en-NG');
+        this.eventsGateway.notifyUser(job.transporterId, 'payment:released', {
+          amount: payment.transporterPayout || payment.amount,
+          message: `₦${amount} has been released to your account.`,
+        });
+        await this.pushService.sendToUser(job.transporterId,
+          this.pushService.templates.payoutReleased(amount),
+        ).catch(() => {});
+      }
+    }
   }
 
   // ─── Create Paystack Transfer Recipient ─────────────────────────────────────

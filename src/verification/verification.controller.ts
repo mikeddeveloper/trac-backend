@@ -45,4 +45,20 @@ export class VerificationController {
     }
     return this.verificationService.confirmVerification(req.user.id, body.verifiedData);
   }
+
+  @Post('license/submit')
+  @UseGuards(AuthGuard('jwt'))
+  async submitLicense(@Request() req: any, @Body() body: {
+    licenseNumber: string;
+    licenseExpiry: string;
+    vehicleType: string;
+  }) {
+    return this.verificationService.submitLicense(req.user.id, body);
+  }
+
+  @Get('license/status')
+  @UseGuards(AuthGuard('jwt'))
+  async getLicenseStatus(@Request() req: any) {
+    return this.verificationService.getLicenseStatus(req.user.id);
+  }
 }
