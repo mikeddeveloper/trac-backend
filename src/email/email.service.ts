@@ -426,7 +426,7 @@ export class EmailService {
       const { error } = await this.resend.emails.send({
         from: 'Trac Logistics <admin@traclogistics.com.ng>',
         to: user.email,
-        subject: '❌ License Verification Failed | Trac Logistics',
+        subject: '📋 License Verification Update | Trac Logistics',
         html,
       });
       if (error) {
