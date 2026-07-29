@@ -8,11 +8,13 @@ import { DisputesController } from './disputes.controller';
 import { Dispute } from './entities/dispute.entity';
 import { Job } from '../jobs/entities/job.entity';
 import { EventsModule } from '../events/events.module';
+import { PushModule } from '../push/push.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Dispute, Job]),
     EventsModule,
+    PushModule,
   ],
   controllers: [DisputesController],
   providers: [DisputesService],

@@ -25,6 +25,7 @@ export class DisputesService {
     @InjectRepository(Job)
     private jobRepo: Repository<Job>,
     private eventsGateway: EventsGateway,
+    private pushService: PushService,
   ) {}
 
   // ─── Raise a dispute ────────────────────────────────────────────────────────
@@ -88,6 +89,12 @@ export class DisputesService {
         reason,
         message: 'A dispute has been raised on your job',
       });
+      await this.pushService.sendToUser(notifyUserId, {
+        title: '⚠️ Dispute Raised',
+        body: 'A dispute has been raised on your delivery job',
+        url: '/dashboard/disputes',
+        tag: 'dispute',
+      }).catch(() => {});
     }
 
     return saved;
@@ -155,12 +162,34 @@ export class DisputesService {
 
     const updated = await this.getDisputeById(disputeId);
 
-    // Notify the person who raised the dispute
-    this.eventsGateway.notifyUser(dispute.raisedById, 'dispute:resolved', {
+    const job = await this.jobRepo.findOne({ where: { id: dispute.jobId } });
+    const otherPartyId = job
+      ? (job.customerId === dispute.raisedById ? job.transporterId : job.customerId)
+      : null;
+
+    const resolvedPayload = {
       disputeId,
       resolutionNote,
       message: 'Your dispute has been resolved',
-    });
+    };
+
+    this.eventsGateway.notifyUser(dispute.raisedById, 'dispute:resolved', resolvedPayload);
+    await this.pushService.sendToUser(dispute.raisedById, {
+      title: '✅ Dispute Resolved',
+      body: 'Your dispute has been resolved by admin',
+      url: '/dashboard/disputes',
+      tag: 'dispute-resolved',
+    }).catch(() => {});
+
+    if (otherPartyId) {
+      this.eventsGateway.notifyUser(otherPartyId, 'dispute:resolved', resolvedPayload);
+      await this.pushService.sendToUser(otherPartyId, {
+        title: '✅ Dispute Resolved',
+        body: 'Your dispute has been resolved by admin',
+        url: '/dashboard/disputes',
+        tag: 'dispute-resolved',
+      }).catch(() => {});
+    }
 
     this.logger.log(`✅ Dispute ${disputeId} resolved`);
     return updated;
