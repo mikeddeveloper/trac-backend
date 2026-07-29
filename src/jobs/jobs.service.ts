@@ -59,8 +59,8 @@ export class JobsService {
     const job = this.jobRepo.create({ ...dto, customerId, status: JobStatus.BIDDING });
     const saved = await this.jobRepo.save(job);
 
-    // ── Broadcast to all transporters in real-time ──
-    this.eventsGateway.broadcast('bid:new', {
+    // ── Broadcast new job to all connected transporters ──
+    this.eventsGateway.broadcast('job:new', {
       jobId: saved.id,
       pickupState: saved.pickupState,
       deliveryState: saved.deliveryState,

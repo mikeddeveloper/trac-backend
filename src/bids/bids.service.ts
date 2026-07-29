@@ -102,6 +102,13 @@ export class BidsService {
 
     await this.jobsService.assignTransporter(bid.jobId, bid.transporterId, bid.amount);
 
+    // ── Socket: notify transporter their bid was accepted in real-time ──
+    this.eventsGateway.notifyUser(bid.transporterId, 'bid:accepted', {
+      jobId: bid.jobId,
+      amount: bid.amount,
+      message: 'Your bid has been accepted! Prepare for pickup.',
+    });
+
     // ── Push: notify transporter their bid was accepted ──
     const route = `${bid.job.pickupState} → ${bid.job.deliveryState}`;
     await this.pushService.sendToUser(
