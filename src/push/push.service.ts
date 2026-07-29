@@ -70,40 +70,49 @@ export class PushService {
     url?: string;
     tag?: string;
     icon?: string;
-  }): Promise<void> {
-    const subs = await this.subRepo.find({ where: { userId } });
-    if (!subs.length) return;
+    data?: any;
+  }): Promise<{ sent: number }> {
+    try {
+      const subs = await this.subRepo.find({ where: { userId } });
+      if (!subs.length) {
+        this.logger.warn(`📵 No push subscriptions found for user ${userId}`);
+        return { sent: 0 };
+      }
 
-    const data = JSON.stringify({
-      title: payload.title,
-      body:  payload.body,
-      url:   payload.url || '/dashboard',
-      tag:   payload.tag || 'trac',
-      icon:  payload.icon || '/icons/icon-192x192.png',
-    });
+      const message = JSON.stringify({
+        title: payload.title,
+        body:  payload.body,
+        url:   payload.url  || '/dashboard',
+        tag:   payload.tag  || 'trac',
+        icon:  payload.icon || '/icons/icon-192x192.png',
+        data:  payload.data ?? {},
+      });
 
-    const results = await Promise.allSettled(
-      subs.map(async (sub) => {
+      let sent = 0;
+      for (const sub of subs) {
         try {
           const subscription = {
             endpoint: sub.endpoint,
             keys: { p256dh: sub.p256dh, auth: sub.auth },
           };
-          await webpush.sendNotification(subscription as any, data);
+          await webpush.sendNotification(subscription as any, message);
+          sent++;
         } catch (err: any) {
-          // Remove expired subscriptions (410 Gone)
           if (err.statusCode === 410 || err.statusCode === 404) {
             await this.subRepo.delete(sub.id);
-            this.logger.log(`🗑️ Removed expired subscription for user ${userId}`);
+            this.logger.warn(`🗑️ Removed expired push subscription for user ${userId}`);
+          } else {
+            this.logger.warn(`⚠️ Push failed for sub ${sub.id}: ${err.message}`);
           }
-          throw err;
         }
-      })
-    );
+      }
 
-    const sent   = results.filter(r => r.status === 'fulfilled').length;
-    const failed = results.filter(r => r.status === 'rejected').length;
-    this.logger.log(`📤 Push sent to ${userId}: ${sent} ok, ${failed} failed`);
+      this.logger.log(`📤 Push to ${userId}: ${sent}/${subs.length} sent`);
+      return { sent };
+    } catch (err: any) {
+      this.logger.warn(`⚠️ sendToUser error for ${userId}: ${err.message}`);
+      return { sent: 0 };
+    }
   }
 
   // ─── Remove subscription ─────────────────────────────────────────────────────

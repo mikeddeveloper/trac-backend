@@ -228,6 +228,24 @@ export class JobsService {
       ).catch(() => {});
     }
 
+    if (newStatus === JobStatus.DELIVERED && updatedJob.transporterId) {
+      await this.pushService.sendToUser(updatedJob.transporterId, {
+        title: '✅ Delivery Confirmed',
+        body: 'Delivery confirmed! Your payment will be released shortly.',
+        url: '/dashboard/earnings',
+        tag: 'delivered',
+      }).catch(() => {});
+    }
+
+    if (newStatus === JobStatus.CANCELLED && updatedJob.transporterId) {
+      await this.pushService.sendToUser(updatedJob.transporterId, {
+        title: '⚠️ Job Cancelled',
+        body: 'The job has been cancelled by the customer',
+        url: '/dashboard/tracking',
+        tag: 'cancelled',
+      }).catch(() => {});
+    }
+
     if (newStatus === JobStatus.DELIVERED) {
       try {
         const customer = await this.userRepo.findOne({ where: { id: job.customerId } });

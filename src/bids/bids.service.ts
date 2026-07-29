@@ -121,6 +121,22 @@ export class BidsService {
     if (bid.job.customerId !== customerId) throw new ForbiddenException('You do not own this job');
 
     bid.status = BidStatus.REJECTED;
-    return this.bidsRepo.save(bid);
+    const saved = await this.bidsRepo.save(bid);
+
+    // ── Socket: notify transporter their bid was not selected ──
+    this.eventsGateway.notifyUser(bid.transporterId, 'bid:rejected', {
+      jobId: bid.jobId,
+      message: 'Your bid was not selected for this job',
+    });
+
+    // ── Push: notify transporter their bid was not selected ──
+    await this.pushService.sendToUser(bid.transporterId, {
+      title: '❌ Bid Not Selected',
+      body: 'Your bid was not selected for this job',
+      url: '/dashboard/bids',
+      tag: 'bid-rejected',
+    }).catch(() => {});
+
+    return saved;
   }
 }

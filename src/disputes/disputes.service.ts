@@ -13,6 +13,7 @@ import { Repository } from 'typeorm';
 import { Dispute, DisputeStatus, DisputeReason } from './entities/dispute.entity';
 import { Job, JobStatus } from '../jobs/entities/job.entity';
 import { EventsGateway } from '../events/events.gateway';
+import { PushService } from '../push/push.service';
 
 @Injectable()
 export class DisputesService {
