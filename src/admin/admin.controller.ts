@@ -86,6 +86,14 @@ export class AdminController {
     return this.adminService.suspendUser(id);
   }
 
+  // ─── PATCH /admin/users/:id/unsuspend ────────────────────────────────────────
+  @Patch('users/:id/unsuspend')
+  @UseGuards(AuthGuard('jwt'))
+  async unsuspendUser(@Request() req: any, @Param('id') id: string) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.unsuspendUser(id);
+  }
+
   // ─── PATCH /admin/users/:id/verify ───────────────────────────────────────────
   @Patch('users/:id/verify')
   @UseGuards(AuthGuard('jwt'))
@@ -209,6 +217,22 @@ export class AdminController {
   async getApprovedVerifications(@Request() req: any) {
     if (req.user.role !== 'admin') throw new ForbiddenException();
     return this.adminService.getApprovedVerifications();
+  }
+
+  // ─── GET /admin/verifications/rejected ───────────────────────────────────────
+  @Get('verifications/rejected')
+  @UseGuards(AuthGuard('jwt'))
+  async getRejectedVerifications(@Request() req: any) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.getRejectedVerifications();
+  }
+
+  // ─── GET /admin/admins ───────────────────────────────────────────────────────
+  @Get('admins')
+  @UseGuards(AuthGuard('jwt'))
+  async getAdminUsers(@Request() req: any) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.getAdminUsers();
   }
 
   // ─── PATCH /admin/kyc/:userId/approve ────────────────────────────────────────

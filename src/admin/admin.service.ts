@@ -172,17 +172,19 @@ export class AdminService {
 
     return {
       users: users.map(u => ({
+        _id: u.id,
         id: u.id,
         fullName: u.fullName,
         email: u.email,
         phone: u.phone,
         role: u.role,
         isVerified: u.isVerified,
-        isSuspended: (u as any).isSuspended || false,
+        status: (u as any).status || ((u as any).isSuspended ? 'suspended' : 'active'),
         kycStatus: (u as any).kycStatus || 'pending',
         kycTier: (u as any).kycTier || 0,
         rating: u.rating,
         tripsCompleted: u.tripsCompleted,
+        avatarUrl: u.avatarUrl,
         createdAt: u.createdAt,
       })),
       total,
@@ -234,16 +236,13 @@ export class AdminService {
   // ─── Suspend / unsuspend user ────────────────────────────────────────────────
 
   async suspendUser(userId: string) {
-    const user = await this.userRepo.findOne({ where: { id: userId } });
-    if (!user) throw new Error('User not found');
+    await this.userRepo.update(userId, { status: 'suspended' } as any);
+    return { message: 'User suspended', user: { status: 'suspended' } };
+  }
 
-    const isSuspended = !((user as any).isSuspended || false);
-    await this.userRepo.update(userId, { isSuspended } as any);
-
-    return {
-      message: isSuspended ? 'User suspended' : 'User unsuspended',
-      isSuspended,
-    };
+  async unsuspendUser(userId: string) {
+    await this.userRepo.update(userId, { status: 'active' } as any);
+    return { message: 'User unsuspended', user: { status: 'active' } };
   }
 
   // ─── Admin verify user ───────────────────────────────────────────────────────
@@ -752,13 +751,16 @@ export class AdminService {
     });
 
     return pending.map(u => ({
+      _id: u.id,
       id: u.id,
+      user: { _id: u.id, fullName: u.fullName, email: u.email },
       fullName: u.fullName,
       email: u.email,
       phone: u.phone,
       kycStatus: (u as any).kycStatus || 'pending',
       vehicleType: u.vehicleType,
       licenseNumber: u.licenseNumber,
+      submittedAt: u.createdAt,
       createdAt: u.createdAt,
       avatarUrl: u.avatarUrl,
     }));
@@ -773,13 +775,16 @@ export class AdminService {
     });
 
     return approved.map(u => ({
+      _id: u.id,
       id: u.id,
+      user: { _id: u.id, fullName: u.fullName, email: u.email },
       fullName: u.fullName,
       email: u.email,
       phone: u.phone,
       kycStatus: (u as any).kycStatus || 'approved',
       kycTier: (u as any).kycTier || 1,
       kycCompletedAt: (u as any).kycCompletedAt,
+      verifiedAt: (u as any).kycCompletedAt || u.createdAt,
       vehicleType: u.vehicleType,
       rating: u.rating,
       tripsCompleted: u.tripsCompleted,
@@ -830,6 +835,43 @@ export class AdminService {
     }).catch(() => {});
 
     return { message: 'Verification rejected' };
+  }
+
+  // ─── Rejected verifications ──────────────────────────────────────────────────
+
+  async getRejectedVerifications() {
+    const rejected = await this.userRepo.find({
+      where: { kycStatus: 'rejected' } as any,
+      order: { createdAt: 'DESC' },
+    });
+    return rejected.map(u => ({
+      _id: u.id,
+      id: u.id,
+      user: { _id: u.id, fullName: u.fullName, email: u.email },
+      fullName: u.fullName,
+      email: u.email,
+      kycStatus: (u as any).kycStatus,
+      createdAt: u.createdAt,
+      submittedAt: u.createdAt,
+      verifiedAt: null,
+    }));
+  }
+
+  // ─── List admin accounts ──────────────────────────────────────────────────────
+
+  async getAdminUsers() {
+    const admins = await this.userRepo.find({
+      where: { role: 'admin' as any },
+      order: { createdAt: 'ASC' },
+    });
+    return admins.map(u => ({
+      id: u.id,
+      fullName: u.fullName,
+      email: u.email,
+      status: (u as any).status || 'active',
+      createdAt: u.createdAt,
+      lastLogin: (u as any).lastLogin || null,
+    }));
   }
 
   // ─── Revoke verification ──────────────────────────────────────────────────────
