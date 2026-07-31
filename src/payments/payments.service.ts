@@ -470,4 +470,42 @@ export class PaymentsService {
       totalJobs: payments.length,
     };
   }
+
+  // ─── Simulate Release (test mode only) ──────────────────────────────────────
+
+  async simulateRelease(transporterId: string): Promise<{ released: number; count: number }> {
+    // Find all escrow-held payments for this transporter's jobs
+    const payments = await this.paymentRepo
+      .createQueryBuilder('payment')
+      .innerJoin('jobs', 'job', 'job.id = payment.jobId')
+      .where('job.transporterId = :transporterId', { transporterId })
+      .andWhere('payment.status IN (:...statuses)', {
+        statuses: [PaymentStatus.SUCCESS, PaymentStatus.HELD, PaymentStatus.PENDING],
+      })
+      .getMany();
+
+    if (payments.length === 0) return { released: 0, count: 0 };
+
+    let totalReleased = 0;
+
+    for (const payment of payments) {
+      await this.paymentRepo.update(payment.id, { status: PaymentStatus.RELEASED });
+      const payout = Number(payment.transporterPayout || payment.amount);
+      totalReleased += payout;
+
+      // Fire the same socket + push as a real transfer.success webhook
+      const amount = payout.toLocaleString('en-NG');
+      this.eventsGateway.notifyUser(transporterId, 'payment:released', {
+        amount: payout,
+        message: `₦${amount} has been released to your account.`,
+      });
+      await this.pushService.sendToUser(
+        transporterId,
+        this.pushService.templates.payoutReleased(amount),
+      ).catch(() => {});
+    }
+
+    this.logger.log(`🧪 [TEST] Simulated release of ₦${totalReleased} across ${payments.length} payment(s) for transporter ${transporterId}`);
+    return { released: totalReleased, count: payments.length };
+  }
 }

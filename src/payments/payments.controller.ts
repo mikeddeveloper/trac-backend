@@ -100,9 +100,14 @@ export class PaymentsController {
     return { recipientCode: code };
   }
 
+  // ─── POST /payments/simulate-release ────────────────────────────────────────
+  @Post('simulate-release')
+  @UseGuards(AuthGuard('jwt'))
+  async simulateRelease(@Req() req: any) {
+    return this.paymentsService.simulateRelease(req.user.id);
+  }
+
   // ─── POST /payments/release/:jobId ───────────────────────────────────────────
-  // Day 19: Release escrow to transporter
-  // Called by customer after confirming delivery
   @Post('release/:jobId')
   @UseGuards(AuthGuard('jwt'))
   async releaseEscrow(
