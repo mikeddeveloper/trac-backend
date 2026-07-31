@@ -88,12 +88,14 @@ export class PaymentsController {
   @Post('recipient')
   @UseGuards(AuthGuard('jwt'))
   async createRecipient(
+    @Req() req: any,
     @Body() body: { accountName: string; accountNumber: string; bankCode: string },
   ) {
     const code = await this.paymentsService.createTransferRecipient(
       body.accountName,
       body.accountNumber,
       body.bankCode,
+      req.user.id,
     );
     return { recipientCode: code };
   }

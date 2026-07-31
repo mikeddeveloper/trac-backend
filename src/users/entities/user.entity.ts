@@ -118,6 +118,19 @@ export class User {
   @Column({ nullable: true })
   vehicleYear!: string;
 
+  // ─── Bank account ──────────────────────────────────────────────────────────
+  @Column({ nullable: true })
+  bankName!: string;
+
+  @Column({ nullable: true })
+  accountNumber!: string;
+
+  @Column({ nullable: true })
+  accountName!: string;
+
+  @Column({ nullable: true })
+  recipientCode!: string; // Paystack transfer recipient code for auto-payouts
+
   @CreateDateColumn()
   createdAt!: Date;
 

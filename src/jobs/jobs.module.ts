@@ -1,7 +1,7 @@
 // trac-backend/src/jobs/jobs.module.ts
 // Day 27: Added PushModule
 
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JobsService } from './jobs.service';
 import { JobsController } from './jobs.controller';
@@ -10,9 +10,14 @@ import { User } from '../users/entities/user.entity';
 import { EventsModule } from '../events/events.module';
 import { PushModule } from '../push/push.module';
 import { EmailModule } from '../email/email.module';
+import { PaymentsModule } from '../payments/payments.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Job, User]), EventsModule, PushModule, EmailModule],
+  imports: [
+    TypeOrmModule.forFeature([Job, User]),
+    EventsModule, PushModule, EmailModule,
+    forwardRef(() => PaymentsModule),
+  ],
   controllers: [JobsController],
   providers: [JobsService],
   exports: [JobsService],

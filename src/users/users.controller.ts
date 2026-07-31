@@ -1,9 +1,16 @@
 // trac-backend/src/users/users.controller.ts
-// Profile update + password change
+// Profile update + password change + avatar upload + bank account
 
-import { Controller, Get, Patch, Delete, Body, Request, UseGuards } from '@nestjs/common';
+import {
+  Controller, Get, Patch, Delete, Body, Request, UseGuards,
+  UseInterceptors, UploadedFile, BadRequestException,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthGuard } from '@nestjs/passport';
 import { UsersService } from './users.service';
+import { diskStorage } from 'multer';
+import { extname, join } from 'path';
+import * as fs from 'fs';
 import * as bcrypt from 'bcrypt';
 
 @Controller('users')
@@ -22,6 +29,18 @@ export class UsersController {
       phone: user.phone,
       role: user.role,
       isVerified: user.isVerified,
+      avatarUrl: user.avatarUrl,
+      state: user.state,
+      bio: user.bio,
+      companyName: user.companyName,
+      vehicleType: user.vehicleType,
+      licenseNumber: user.licenseNumber,
+      vehiclePlate: user.vehiclePlate,
+      vehicleYear: user.vehicleYear,
+      rcNumber: user.rcNumber,
+      bankName: user.bankName,
+      accountNumber: user.accountNumber,
+      accountName: user.accountName,
     };
   }
 
@@ -59,6 +78,50 @@ export class UsersController {
     return this.usersService.findById(userId);
   }
 
+  // PATCH /api/users/profile/avatar
+  @Patch('profile/avatar')
+  @UseGuards(AuthGuard('jwt'))
+  @UseInterceptors(FileInterceptor('avatar', {
+    storage: diskStorage({
+      destination: (_req, _file, cb) => {
+        const dir = join(process.cwd(), 'uploads', 'avatars');
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        cb(null, dir);
+      },
+      filename: (req: any, file, cb) => {
+        const ext = extname(file.originalname);
+        cb(null, `${req.user.id}_${Date.now()}${ext}`);
+      },
+    }),
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      if (file.mimetype.startsWith('image/')) cb(null, true);
+      else cb(new BadRequestException('Only image files allowed'), false);
+    },
+  }))
+  async uploadAvatar(@Request() req: any, @UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    const baseUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3001}`;
+    const avatarUrl = `${baseUrl}/uploads/avatars/${file.filename}`;
+    await this.usersService.updateProfile(req.user.id, { avatarUrl } as any);
+    return { avatarUrl };
+  }
+
+  // PATCH /api/users/bank-account
+  @Patch('bank-account')
+  @UseGuards(AuthGuard('jwt'))
+  async saveBankAccount(
+    @Request() req: any,
+    @Body() body: { bankName: string; accountNumber: string; accountName: string },
+  ) {
+    await this.usersService.updateProfile(req.user.id, {
+      bankName: body.bankName,
+      accountNumber: body.accountNumber,
+      accountName: body.accountName,
+    } as any);
+    return { message: 'Bank account saved successfully' };
+  }
+
   // DELETE /api/users/me
   @Delete('me')
   @UseGuards(AuthGuard('jwt'))
@@ -74,18 +137,12 @@ export class UsersController {
     @Request() req: any,
     @Body() body: { currentPassword: string; newPassword: string },
   ) {
-    // Get user with password
     const user = await this.usersService.findByEmailWithPassword(req.user.email);
-    if (!user) throw new Error('User not found');
+    if (!user) throw new BadRequestException('User not found');
 
-    // Verify current password
     const match = await bcrypt.compare(body.currentPassword, user.password);
-    if (!match) {
-      const { BadRequestException } = await import('@nestjs/common');
-      throw new BadRequestException('Current password is incorrect');
-    }
+    if (!match) throw new BadRequestException('Current password is incorrect');
 
-    // Hash new password
     const hashed = await bcrypt.hash(body.newPassword, 12);
     await this.usersService.updateProfile(req.user.id, { password: hashed } as any);
 

@@ -14,6 +14,8 @@ import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import * as crypto from 'crypto';
 import { Payment, PaymentStatus, PaymentType } from './entities/payment.entity';
+import { Job } from '../jobs/entities/job.entity';
+import { User } from '../users/entities/user.entity';
 import { EventsGateway } from '../events/events.gateway';
 import { PushService } from '../push/push.service';
 import { EmailService } from '../email/email.service';
@@ -33,6 +35,10 @@ export class PaymentsService {
     private configService: ConfigService,
     @InjectRepository(Payment)
     private paymentRepo: Repository<Payment>,
+    @InjectRepository(Job)
+    private jobRepo: Repository<Job>,
+    @InjectRepository(User)
+    private userRepo: Repository<User>,
     private eventsGateway: EventsGateway,
     private pushService: PushService,
     private emailService: EmailService,
@@ -261,6 +267,7 @@ export class PaymentsService {
     accountName: string,
     accountNumber: string,
     bankCode: string,
+    userId?: string,
   ): Promise<string> {
     try {
       const response = await axios.post(
@@ -274,7 +281,12 @@ export class PaymentsService {
         },
         { headers: this.headers },
       );
-      return response.data.data.recipient_code;
+      const recipientCode: string = response.data.data.recipient_code;
+      // Persist on the user record so auto-release can find it without frontend involvement
+      if (userId) {
+        await this.userRepo.update(userId, { recipientCode } as any);
+      }
+      return recipientCode;
     } catch (error) {
       this.logger.error('createRecipient error', (error as any)?.response?.data);
       throw new BadRequestException('Failed to create transfer recipient');
@@ -286,14 +298,13 @@ export class PaymentsService {
   // Called when customer confirms delivery
   // Sends 90% to transporter, keeps 10% as Trac commission
 
-  async releaseEscrow(jobId: string, transporterRecipientCode: string): Promise<Payment> {
+  async releaseEscrow(jobId: string, transporterRecipientCode?: string): Promise<Payment> {
     // Find the payment for this job
     const payment = await this.paymentRepo.findOne({
       where: { jobId, status: PaymentStatus.SUCCESS },
     });
 
     if (!payment) {
-      // Try finding held payment
       const heldPayment = await this.paymentRepo.findOne({
         where: { jobId, status: PaymentStatus.HELD },
       });
@@ -302,6 +313,21 @@ export class PaymentsService {
 
     const escrowPayment = payment || await this.paymentRepo.findOne({ where: { jobId } });
     if (!escrowPayment) throw new NotFoundException('Payment not found');
+
+    // Auto-look up the transporter's recipient code if not supplied
+    if (!transporterRecipientCode) {
+      const job = await this.jobRepo.findOne({ where: { id: jobId } });
+      if (job?.transporterId) {
+        const transporter = await this.userRepo.findOne({ where: { id: job.transporterId } });
+        transporterRecipientCode = transporter?.recipientCode ?? undefined;
+      }
+    }
+
+    if (!transporterRecipientCode) {
+      throw new BadRequestException(
+        'Transporter has not set up a bank account for payouts. Please ask them to add their bank details in the Earnings page.',
+      );
+    }
 
     const payoutAmount = escrowPayment.transporterPayout || Number(escrowPayment.amount) * this.TRANSPORTER_SHARE;
     const payoutKobo = Math.round(payoutAmount * 100);
@@ -345,12 +371,17 @@ export class PaymentsService {
 
       return releasePayment;
     } catch (error) {
-      this.logger.error('releaseEscrow error', (error as any)?.response?.data || (error as any)?.message);
-      // Don't throw — log and notify admin instead
-      // In test mode Paystack transfer requires funded balance
-      this.logger.warn('Transfer failed — likely insufficient Paystack balance in test mode');
+      const paystackError = (error as any)?.response?.data;
+      const errorMsg = paystackError?.message || (error as any)?.message || 'Unknown error';
+      const errorCode = paystackError?.code;
+      this.logger.error(
+        `❌ releaseEscrow failed for job ${jobId}: [${errorCode}] ${errorMsg}`,
+        JSON.stringify(paystackError ?? {}),
+      );
       throw new BadRequestException(
-        'Transfer failed. Ensure your Paystack balance is funded in test mode.',
+        `Transfer failed: ${errorMsg}. ` +
+        `Check your Paystack dashboard — ensure Transfer OTP is disabled (Settings → Preferences) ` +
+        `and your test balance is funded.`,
       );
     }
   }

@@ -15,6 +15,7 @@ import { User } from '../users/entities/user.entity';
 import { EventsGateway } from '../events/events.gateway';
 import { PushService } from '../push/push.service';
 import { EmailService } from '../email/email.service';
+import { PaymentsService } from '../payments/payments.service';
 import { createClient } from '@supabase/supabase-js';
 import { ConfigService } from '@nestjs/config';
 
@@ -46,6 +47,7 @@ export class JobsService {
     private eventsGateway: EventsGateway,
     private pushService: PushService,
     private emailService: EmailService,
+    private paymentsService: PaymentsService,
     private configService: ConfigService,
   ) {
     const url = this.configService.get<string>('SUPABASE_URL');
@@ -205,11 +207,18 @@ export class JobsService {
       });
     }
 
-    // ── Delivered event ──
-    if (newStatus === JobStatus.DELIVERED && updatedJob.customerId) {
-      this.eventsGateway.notifyUser(updatedJob.customerId, 'job:delivered', {
-        jobId,
-        message: 'Your delivery has been confirmed. Payment will be released to transporter.',
+    // ── Delivered event + auto-release escrow ──
+    if (newStatus === JobStatus.DELIVERED) {
+      if (updatedJob.customerId) {
+        this.eventsGateway.notifyUser(updatedJob.customerId, 'job:delivered', {
+          jobId,
+          message: 'Your delivery has been confirmed. Payment is being released to the transporter.',
+        });
+      }
+      // Trac auto-releases the escrow — no customer action needed
+      this.paymentsService.releaseEscrow(jobId).catch((err) => {
+        this.logger.warn(`Auto-release failed for job ${jobId}: ${err?.message}`);
+        // Non-blocking: job is marked delivered regardless; admin can manually trigger release
       });
     }
 
