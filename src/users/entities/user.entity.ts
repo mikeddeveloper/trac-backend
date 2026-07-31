@@ -96,6 +96,10 @@ export class User {
   @Column({ type: 'timestamp', nullable: true })
   passwordResetExpiry!: Date;
 
+  // ─── Account status ────────────────────────────────────────────────────────
+  @Column({ default: false })
+  isSuspended!: boolean;
+
   // ─── KYC ──────────────────────────────────────────────────────────────────
   @Column({ default: false })
   ninVerified!: boolean;

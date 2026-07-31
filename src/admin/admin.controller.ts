@@ -187,6 +187,14 @@ export class AdminController {
     return this.adminService.refundPayment(id);
   }
 
+  // ─── GET /admin/analytics ─────────────────────────────────────────────────────
+  @Get('analytics')
+  @UseGuards(AuthGuard('jwt'))
+  async getAggregatedAnalytics(@Request() req: any) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.getAggregatedAnalytics();
+  }
+
   // ─── GET /admin/analytics/revenue ────────────────────────────────────────────
   @Get('analytics/revenue')
   @UseGuards(AuthGuard('jwt'))

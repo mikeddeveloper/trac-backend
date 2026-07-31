@@ -179,7 +179,7 @@ export class AdminService {
         phone: u.phone,
         role: u.role,
         isVerified: u.isVerified,
-        status: (u as any).status || ((u as any).isSuspended ? 'suspended' : 'active'),
+        status: u.isSuspended ? 'suspended' : 'active',
         kycStatus: (u as any).kycStatus || 'pending',
         kycTier: (u as any).kycTier || 0,
         rating: u.rating,
@@ -236,13 +236,13 @@ export class AdminService {
   // ─── Suspend / unsuspend user ────────────────────────────────────────────────
 
   async suspendUser(userId: string) {
-    await this.userRepo.update(userId, { status: 'suspended' } as any);
-    return { message: 'User suspended', user: { status: 'suspended' } };
+    await this.userRepo.update(userId, { isSuspended: true });
+    return { message: 'User suspended', user: { status: 'suspended', isSuspended: true } };
   }
 
   async unsuspendUser(userId: string) {
-    await this.userRepo.update(userId, { status: 'active' } as any);
-    return { message: 'User unsuspended', user: { status: 'active' } };
+    await this.userRepo.update(userId, { isSuspended: false });
+    return { message: 'User unsuspended', user: { status: 'active', isSuspended: false } };
   }
 
   // ─── Admin verify user ───────────────────────────────────────────────────────
@@ -757,9 +757,14 @@ export class AdminService {
       fullName: u.fullName,
       email: u.email,
       phone: u.phone,
-      kycStatus: (u as any).kycStatus || 'pending',
+      kycStatus: u.kycStatus || 'pending',
       vehicleType: u.vehicleType,
+      vehiclePlate: u.vehiclePlate,
+      vehicleYear: u.vehicleYear,
       licenseNumber: u.licenseNumber,
+      licenseExpiry: u.licenseExpiry,
+      licenseStatus: u.licenseStatus,
+      ninVerified: u.ninVerified,
       submittedAt: u.createdAt,
       createdAt: u.createdAt,
       avatarUrl: u.avatarUrl,
@@ -958,6 +963,91 @@ export class AdminService {
         phone: j.transporter.phone,
       } : null,
     }));
+  }
+
+  // ─── Aggregated analytics (GET /admin/analytics) ─────────────────────────────
+
+  async getAggregatedAnalytics() {
+    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+
+    const [
+      totalCustomers,
+      totalTransporters,
+      newCustomersThisMonth,
+      newTransportersThisMonth,
+      allJobs,
+      topTransporterUsers,
+      topCustomerUsers,
+    ] = await Promise.all([
+      this.userRepo.count({ where: { role: 'customer' as any } }),
+      this.userRepo.count({ where: { role: 'transporter' as any } }),
+      this.userRepo.count({ where: { role: 'customer' as any, createdAt: MoreThanOrEqual(monthStart) } }),
+      this.userRepo.count({ where: { role: 'transporter' as any, createdAt: MoreThanOrEqual(monthStart) } }),
+      this.jobRepo.find(),
+      this.userRepo.find({ where: { role: 'transporter' as any }, order: { tripsCompleted: 'DESC' }, take: 5 }),
+      this.userRepo.find({ where: { role: 'customer' as any }, order: { tripsCompleted: 'DESC' }, take: 5 }),
+    ]);
+
+    const routeMap: Record<string, { jobs: number; revenue: number }> = {};
+    const statusMap: Record<string, number> = {};
+
+    for (const job of allJobs) {
+      const route = `${job.pickupState} → ${job.deliveryState}`;
+      if (!routeMap[route]) routeMap[route] = { jobs: 0, revenue: 0 };
+      routeMap[route].jobs++;
+      routeMap[route].revenue += Number((job as any).acceptedAmount || 0);
+
+      const s = job.status as string;
+      statusMap[s] = (statusMap[s] || 0) + 1;
+    }
+
+    const topRoutes = Object.entries(routeMap)
+      .map(([route, d]) => ({ route, ...d }))
+      .sort((a, b) => b.jobs - a.jobs)
+      .slice(0, 5);
+
+    const totalJobs = allJobs.length;
+    const deliveredCount = statusMap['delivered'] || 0;
+    const completionRate = totalJobs > 0 ? Math.round((deliveredCount / totalJobs) * 100) : 0;
+
+    const transporterIds = topTransporterUsers.map(u => u.id);
+    const customerIds = topCustomerUsers.map(u => u.id);
+
+    const transporterEarned: Record<string, number> = {};
+    for (const tid of transporterIds) {
+      const earned = allJobs
+        .filter(j => (j as any).transporterId === tid && j.status === 'delivered' as any)
+        .reduce((sum, j) => sum + Number((j as any).acceptedAmount || 0) * 0.87, 0);
+      transporterEarned[tid] = earned;
+    }
+
+    const customerSpent: Record<string, number> = {};
+    for (const cid of customerIds) {
+      const spent = allJobs
+        .filter(j => (j as any).customerId === cid)
+        .reduce((sum, j) => sum + Number((j as any).acceptedAmount || 0), 0);
+      customerSpent[cid] = spent;
+    }
+
+    return {
+      topRoutes,
+      topTransporters: topTransporterUsers.map(t => ({
+        name: t.fullName,
+        trips: t.tripsCompleted,
+        earned: transporterEarned[t.id] || 0,
+      })),
+      jobsByStatus: statusMap,
+      completionRate,
+      topCustomers: topCustomerUsers.map(c => ({
+        name: c.fullName,
+        jobs: c.tripsCompleted,
+        spent: customerSpent[c.id] || 0,
+      })),
+      totalCustomers,
+      totalTransporters,
+      newCustomersThisMonth,
+      newTransportersThisMonth,
+    };
   }
 
   // ─── Rule for customer ────────────────────────────────────────────────────────
