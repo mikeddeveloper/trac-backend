@@ -490,16 +490,27 @@ export class AdminService {
     return {
       payments: payments.map(p => ({
         id: p.id,
+        _id: p.id,
         reference: p.reference,
         amount: p.amount,
-        vatAmount: (p as any).vatAmount || 0,
+        vat: Number(p.vatAmount) || 0,
         commission: Number(p.amount) * 0.10,
         status: p.status,
         createdAt: p.createdAt,
-        jobId: (p as any).jobId,
+        jobId: p.jobId,
         jobRoute: p.job ? `${p.job.pickupState} → ${p.job.deliveryState}` : 'N/A',
-        customerName: p.job?.customer?.fullName || 'N/A',
-        transporterName: p.job?.transporter?.fullName || 'N/A',
+        customer: p.job?.customer ? {
+          id: p.job.customer.id,
+          _id: p.job.customer.id,
+          fullName: p.job.customer.fullName,
+          email: p.job.customer.email,
+        } : null,
+        transporter: p.job?.transporter ? {
+          id: p.job.transporter.id,
+          _id: p.job.transporter.id,
+          fullName: p.job.transporter.fullName,
+          email: p.job.transporter.email,
+        } : null,
       })),
       total,
       page,
@@ -537,7 +548,7 @@ export class AdminService {
     return {
       totalProcessed,
       totalCommission,
-      totalVAT,
+      totalVat: totalVAT,
       thisMonth: thisMonthTotal,
       lastMonth: lastMonthTotal,
       escrowHeld,
@@ -937,32 +948,54 @@ export class AdminService {
   // ─── Disputed jobs ────────────────────────────────────────────────────────────
 
   async getDisputes() {
-    const disputedJobs = await this.jobRepo.find({
-      where: { status: 'disputed' as any },
-      relations: ['customer', 'transporter'],
+    const disputes = await this.disputeRepo.find({
+      relations: ['raisedBy', 'job'],
       order: { createdAt: 'DESC' },
     });
 
-    return disputedJobs.map(j => ({
-      id: j.id,
-      pickupState: j.pickupState,
-      deliveryState: j.deliveryState,
-      status: j.status,
-      acceptedAmount: j.acceptedAmount,
-      createdAt: j.createdAt,
-      customer: j.customer ? {
-        id: j.customer.id,
-        fullName: j.customer.fullName,
-        email: j.customer.email,
-        phone: j.customer.phone,
-      } : null,
-      transporter: j.transporter ? {
-        id: j.transporter.id,
-        fullName: j.transporter.fullName,
-        email: j.transporter.email,
-        phone: j.transporter.phone,
-      } : null,
+    const results = await Promise.all(disputes.map(async d => {
+      const job = d.job ?? (d.jobId ? await this.jobRepo.findOne({ where: { id: d.jobId }, relations: ['customer', 'transporter'] }) : null);
+      return {
+        id: d.id,
+        _id: d.id,
+        jobId: d.jobId,
+        reason: d.reason,
+        description: d.description,
+        status: d.status,
+        resolutionNote: d.resolutionNote,
+        createdAt: d.createdAt,
+        raisedBy: d.raisedBy ? {
+          id: d.raisedBy.id,
+          _id: d.raisedBy.id,
+          fullName: d.raisedBy.fullName,
+          email: d.raisedBy.email,
+          phone: d.raisedBy.phone,
+        } : null,
+        job: job ? {
+          id: job.id,
+          pickupState: job.pickupState,
+          deliveryState: job.deliveryState,
+          acceptedAmount: job.acceptedAmount,
+          status: job.status,
+        } : null,
+        customer: job?.customer ? {
+          id: job.customer.id,
+          _id: job.customer.id,
+          fullName: job.customer.fullName,
+          email: job.customer.email,
+          phone: job.customer.phone,
+        } : null,
+        transporter: job?.transporter ? {
+          id: job.transporter.id,
+          _id: job.transporter.id,
+          fullName: job.transporter.fullName,
+          email: job.transporter.email,
+          phone: job.transporter.phone,
+        } : null,
+      };
     }));
+
+    return results;
   }
 
   // ─── Aggregated analytics (GET /admin/analytics) ─────────────────────────────
@@ -1052,39 +1085,48 @@ export class AdminService {
 
   // ─── Rule for customer ────────────────────────────────────────────────────────
 
-  async ruleForCustomer(jobId: string) {
-    const job = await this.jobRepo.findOne({ where: { id: jobId } });
-    if (!job) throw new Error('Job not found');
+  async ruleForCustomer(disputeId: string) {
+    const dispute = await this.disputeRepo.findOne({ where: { id: disputeId } });
+    if (!dispute) throw new Error('Dispute not found');
 
-    await this.jobRepo.update(jobId, { status: 'cancelled' as any });
+    await this.disputeRepo.update(disputeId, {
+      status: DisputeStatus.RESOLVED,
+      resolutionNote: 'Ruled in favor of customer',
+      resolvedAt: new Date(),
+    });
 
-    const payment = await this.paymentRepo.findOne({ where: { jobId } as any });
-    if (payment) {
-      await this.paymentRepo.update(payment.id, { status: 'refunded' } as any);
-    }
+    const job = dispute.jobId ? await this.jobRepo.findOne({ where: { id: dispute.jobId } }) : null;
+    if (job) {
+      await this.jobRepo.update(job.id, { status: JobStatus.CANCELLED });
 
-    if (job.customerId) {
-      this.eventsGateway.notifyUser(job.customerId, 'dispute:resolved', {
-        message: 'Dispute resolved in your favor. Payment will be refunded.',
-        result: 'customer',
-      });
-      await this.pushService.sendToUser(job.customerId, {
-        title: '✅ Dispute Resolved',
-        body: 'Dispute resolved in your favor. Your payment will be refunded.',
-        icon: '/icon-192.png',
-      }).catch(() => {});
-    }
+      const payment = await this.paymentRepo.findOne({ where: { jobId: job.id } as any });
+      if (payment) {
+        await this.paymentRepo.update(payment.id, { status: 'refunded' } as any);
+      }
 
-    if (job.transporterId) {
-      this.eventsGateway.notifyUser(job.transporterId, 'dispute:resolved', {
-        message: 'Dispute resolved in favor of customer.',
-        result: 'customer',
-      });
-      await this.pushService.sendToUser(job.transporterId, {
-        title: '❌ Dispute Resolved',
-        body: 'The dispute was resolved in favor of the customer.',
-        icon: '/icon-192.png',
-      }).catch(() => {});
+      if (job.customerId) {
+        this.eventsGateway.notifyUser(job.customerId, 'dispute:resolved', {
+          message: 'Dispute resolved in your favor. Payment will be refunded.',
+          result: 'customer',
+        });
+        await this.pushService.sendToUser(job.customerId, {
+          title: '✅ Dispute Resolved',
+          body: 'Dispute resolved in your favor. Your payment will be refunded.',
+          icon: '/icon-192.png',
+        }).catch(() => {});
+      }
+
+      if (job.transporterId) {
+        this.eventsGateway.notifyUser(job.transporterId, 'dispute:resolved', {
+          message: 'Dispute resolved in favor of customer.',
+          result: 'customer',
+        });
+        await this.pushService.sendToUser(job.transporterId, {
+          title: '❌ Dispute Resolved',
+          body: 'The dispute was resolved in favor of the customer.',
+          icon: '/icon-192.png',
+        }).catch(() => {});
+      }
     }
 
     return { message: 'Dispute resolved in favor of customer' };
@@ -1092,39 +1134,48 @@ export class AdminService {
 
   // ─── Rule for transporter ─────────────────────────────────────────────────────
 
-  async ruleForTransporter(jobId: string) {
-    const job = await this.jobRepo.findOne({ where: { id: jobId } });
-    if (!job) throw new Error('Job not found');
+  async ruleForTransporter(disputeId: string) {
+    const dispute = await this.disputeRepo.findOne({ where: { id: disputeId } });
+    if (!dispute) throw new Error('Dispute not found');
 
-    await this.jobRepo.update(jobId, { status: 'delivered' as any });
+    await this.disputeRepo.update(disputeId, {
+      status: DisputeStatus.RESOLVED,
+      resolutionNote: 'Ruled in favor of transporter',
+      resolvedAt: new Date(),
+    });
 
-    const payment = await this.paymentRepo.findOne({ where: { jobId } as any });
-    if (payment) {
-      await this.paymentRepo.update(payment.id, { status: 'released' } as any);
-    }
+    const job = dispute.jobId ? await this.jobRepo.findOne({ where: { id: dispute.jobId } }) : null;
+    if (job) {
+      await this.jobRepo.update(job.id, { status: JobStatus.DELIVERED });
 
-    if (job.transporterId) {
-      this.eventsGateway.notifyUser(job.transporterId, 'dispute:resolved', {
-        message: 'Dispute resolved in your favor. Payment has been released.',
-        result: 'transporter',
-      });
-      await this.pushService.sendToUser(job.transporterId, {
-        title: '✅ Dispute Resolved',
-        body: 'Dispute resolved in your favor. Payment has been released.',
-        icon: '/icon-192.png',
-      }).catch(() => {});
-    }
+      const payment = await this.paymentRepo.findOne({ where: { jobId: job.id } as any });
+      if (payment) {
+        await this.paymentRepo.update(payment.id, { status: 'released' } as any);
+      }
 
-    if (job.customerId) {
-      this.eventsGateway.notifyUser(job.customerId, 'dispute:resolved', {
-        message: 'Dispute resolved in favor of transporter.',
-        result: 'transporter',
-      });
-      await this.pushService.sendToUser(job.customerId, {
-        title: '❌ Dispute Resolved',
-        body: 'The dispute was resolved in favor of the transporter.',
-        icon: '/icon-192.png',
-      }).catch(() => {});
+      if (job.transporterId) {
+        this.eventsGateway.notifyUser(job.transporterId, 'dispute:resolved', {
+          message: 'Dispute resolved in your favor. Payment has been released.',
+          result: 'transporter',
+        });
+        await this.pushService.sendToUser(job.transporterId, {
+          title: '✅ Dispute Resolved',
+          body: 'Dispute resolved in your favor. Payment has been released.',
+          icon: '/icon-192.png',
+        }).catch(() => {});
+      }
+
+      if (job.customerId) {
+        this.eventsGateway.notifyUser(job.customerId, 'dispute:resolved', {
+          message: 'Dispute resolved in favor of transporter.',
+          result: 'transporter',
+        });
+        await this.pushService.sendToUser(job.customerId, {
+          title: '❌ Dispute Resolved',
+          body: 'The dispute was resolved in favor of the transporter.',
+          icon: '/icon-192.png',
+        }).catch(() => {});
+      }
     }
 
     return { message: 'Dispute resolved in favor of transporter' };
