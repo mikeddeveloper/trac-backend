@@ -5,6 +5,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { PaymentsService } from './payments.service';
 import { PaymentsController } from './payments.controller';
+import { PaymentsScheduler } from './payments.scheduler';
 import { Payment } from './entities/payment.entity';
 import { Job } from '../jobs/entities/job.entity';
 import { User } from '../users/entities/user.entity';
@@ -15,7 +16,7 @@ import { EmailModule } from '../email/email.module';
 @Module({
   imports: [TypeOrmModule.forFeature([Payment, Job, User]), EventsModule, PushModule, EmailModule],
   controllers: [PaymentsController],
-  providers: [PaymentsService],
+  providers: [PaymentsService, PaymentsScheduler],
   exports: [PaymentsService],
 })
 export class PaymentsModule {}
