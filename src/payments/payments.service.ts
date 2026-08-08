@@ -71,7 +71,7 @@ export class PaymentsService {
           email,
           amount: Math.round(totalCharged * 100),
           reference,
-          callback_url: `${this.configService.get('FRONTEND_URL') || 'https://trac-logistics-web-app.vercel.app'}/dashboard/payments`,
+          callback_url: `${this.configService.get('FRONTEND_URL') || 'https://traclogistics.com.ng'}/dashboard/payments`,
           metadata: { jobId, ...metadata },
         },
         { headers: this.headers },

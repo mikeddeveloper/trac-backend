@@ -236,7 +236,7 @@ export class AuthService {
       passwordResetExpiry: expiry,
     } as any);
 
-    const frontendUrl = this.configService.get('FRONTEND_URL') || 'https://trac-logistics-web-app.vercel.app';
+    const frontendUrl = this.configService.get('FRONTEND_URL') || 'https://traclogistics.com.ng';
     const resetUrl = `${frontendUrl}/reset-password?token=${token}`;
 
     this.emailService.sendPasswordResetEmail({ fullName: user.fullName, email: user.email }, resetUrl)

@@ -68,7 +68,7 @@ export class AuthController {
 
     const frontendUrl =
       this.configService.get<string>('FRONTEND_URL') ||
-      'https://trac-logistics-web-app.vercel.app';
+      'https://traclogistics.com.ng';
 
     const userObj = {
       id: user.id,
