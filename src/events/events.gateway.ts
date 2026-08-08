@@ -16,9 +16,19 @@ import { Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 
+const WS_ALLOWED_ORIGINS = [
+  'https://traclogistics.com.ng',
+  'https://www.traclogistics.com.ng',
+  'https://trac-logistics-web-app.vercel.app',
+  'http://localhost:5173',
+  'http://localhost:3000',
+];
+
 @WebSocketGateway({
   cors: {
-    origin: '*',
+    origin: (origin: string, cb: (err: Error | null, allow?: boolean) => void) => {
+      cb(null, !origin || WS_ALLOWED_ORIGINS.includes(origin));
+    },
     credentials: true,
     methods: ['GET', 'POST'],
   },
