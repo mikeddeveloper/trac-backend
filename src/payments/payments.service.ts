@@ -25,11 +25,15 @@ export class PaymentsService {
   private readonly logger = new Logger(PaymentsService.name);
   private readonly paystackUrl = 'https://api.paystack.co';
 
-  private readonly TRAC_COMMISSION   = 0.10;
-  private readonly TRANSPORTER_SHARE = 0.90;
-  private readonly CASHBACK_RATE     = 0.015;
-  private readonly CASHBACK_MIN      = 10_000;
-  private readonly VAT_RATE          = 0.075;
+  private readonly CASHBACK_RATE = 0.015;
+  private readonly CASHBACK_MIN  = 10_000;
+  private readonly VAT_RATE      = 0.075;
+
+  private commissionRate(distanceKm?: number): number {
+    if (!distanceKm || distanceKm < 10) return 0.10;
+    if (distanceKm <= 30)               return 0.09;
+    return 0.08;
+  }
 
   constructor(
     private configService: ConfigService,
@@ -78,7 +82,8 @@ export class PaymentsService {
       );
 
       const { authorization_url, access_code } = response.data.data;
-      const breakdown = this.calculatePayout(amount);
+      const job = await this.jobRepo.findOne({ where: { id: jobId } });
+      const breakdown = this.calculatePayout(amount, job?.distanceKm ? Number(job.distanceKm) : undefined);
 
       const payment = this.paymentRepo.create({
         reference,
@@ -176,8 +181,9 @@ export class PaymentsService {
 
     if (!payment) {
       const amountNaira = amount / 100;
-      const breakdown = this.calculatePayout(amountNaira);
-      const newPayment = this.paymentRepo.create({
+      const relatedJob  = metadata?.jobId ? await this.jobRepo.findOne({ where: { id: metadata.jobId } }) : null;
+      const breakdown   = this.calculatePayout(amountNaira, relatedJob?.distanceKm ? Number(relatedJob.distanceKm) : undefined);
+      const newPayment  = this.paymentRepo.create({
         reference, amount: amountNaira,
         status: PaymentStatus.SUCCESS, type: PaymentType.ESCROW,
         jobId: metadata?.jobId, customerId: metadata?.customerId,
@@ -416,12 +422,13 @@ export class PaymentsService {
 
   // ─── Commission Calculator ───────────────────────────────────────────────────
 
-  calculatePayout(totalAmount: number) {
-    const tracCommission    = +(totalAmount * this.TRAC_COMMISSION).toFixed(2);
-    const transporterPayout = +(totalAmount * this.TRANSPORTER_SHARE).toFixed(2);
+  calculatePayout(totalAmount: number, distanceKm?: number) {
+    const rate              = this.commissionRate(distanceKm);
+    const tracCommission    = +(totalAmount * rate).toFixed(2);
+    const transporterPayout = +(totalAmount * (1 - rate)).toFixed(2);
     const customerCashback  = totalAmount >= this.CASHBACK_MIN
       ? +(totalAmount * this.CASHBACK_RATE).toFixed(2) : 0;
-    return { total: totalAmount, tracCommission, transporterPayout, customerCashback };
+    return { total: totalAmount, tracCommission, transporterPayout, customerCashback, commissionRate: rate };
   }
 
   // ─── Get transactions ────────────────────────────────────────────────────────

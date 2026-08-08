@@ -65,6 +65,9 @@ export class Job {
   @Column({ nullable: true, type: 'decimal', precision: 15, scale: 2 })
   acceptedAmount!: number;
 
+  @Column({ nullable: true, type: 'decimal', precision: 10, scale: 2 })
+  distanceKm!: number;
+
   // ─── Day 15: Status timestamps ────────────────────────────────────────────
   @Column({ nullable: true, type: 'timestamp' })
   pickedUpAt!: Date;
