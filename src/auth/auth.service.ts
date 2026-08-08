@@ -77,11 +77,11 @@ export class AuthService {
   async login(dto: LoginDto) {
     // Find user with password
     const user = await this.usersService.findByEmailWithPassword(dto.email);
-    if (!user) throw new UnauthorizedException('Invalid email or password');
+    if (!user) throw new UnauthorizedException('No account found with this email address');
 
     // Check password
     const passwordMatch = await bcrypt.compare(dto.password, user.password);
-    if (!passwordMatch) throw new UnauthorizedException('Invalid email or password');
+    if (!passwordMatch) throw new UnauthorizedException('Incorrect password. Please try again');
 
     // Generate tokens
     const tokens = await this.generateTokens(user.id, user.email, user.role);
