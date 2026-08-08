@@ -195,6 +195,7 @@ export class VerificationService {
     licenseNumber: string;
     licenseExpiry: string;
     vehicleType: string;
+    licensePhotoUrl?: string;
   }) {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) throw new BadRequestException('User not found');
@@ -213,6 +214,7 @@ export class VerificationService {
       vehicleType: data.vehicleType,
       licenseStatus: 'pending',
       licenseSubmittedAt: new Date(),
+      ...(data.licensePhotoUrl ? { licensePhotoUrl: data.licensePhotoUrl } : {}),
     } as any);
 
     this.logger.log(`📄 License submitted by ${user.email}`);

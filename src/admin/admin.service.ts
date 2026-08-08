@@ -747,8 +747,10 @@ export class AdminService {
       licenseExpiry: (u as any).licenseExpiry,
       licenseStatus: (u as any).licenseStatus,
       licenseSubmittedAt: (u as any).licenseSubmittedAt,
+      licensePhotoUrl: (u as any).licensePhotoUrl || null,
       vehicleType: u.vehicleType,
       avatarUrl: u.avatarUrl,
+      isVerified: u.isVerified,
       kycStatus: (u as any).kycStatus,
     }));
   }

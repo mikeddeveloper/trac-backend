@@ -67,6 +67,9 @@ export class User {
   licenseSubmittedAt!: Date;
 
   @Column({ nullable: true })
+  licensePhotoUrl!: string;
+
+  @Column({ nullable: true })
   companyName!: string;
 
   @Column({ nullable: true })
