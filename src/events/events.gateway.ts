@@ -34,6 +34,9 @@ const WS_ALLOWED_ORIGINS = [
   },
   transports: ['websocket', 'polling'],
   namespace: '/',
+  // Keep connections alive through Render's proxy timeout (60s default)
+  pingInterval: 20000,
+  pingTimeout: 10000,
 })
 export class EventsGateway
   implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
