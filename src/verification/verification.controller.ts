@@ -5,10 +5,28 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthGuard } from '@nestjs/passport';
 import { Throttle } from '@nestjs/throttler';
-import { diskStorage } from 'multer';
-import { extname, join } from 'path';
-import * as fs from 'fs';
+import { memoryStorage } from 'multer';
+import { v2 as cloudinary } from 'cloudinary';
 import { VerificationService } from './verification.service';
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key:    process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+function uploadToCloudinary(buffer: Buffer, publicId: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      { folder: 'trac-licenses', public_id: publicId, resource_type: 'image' },
+      (error, result) => {
+        if (error) reject(error);
+        else resolve(result!.secure_url);
+      },
+    );
+    stream.end(buffer);
+  });
+}
 
 @Controller('verification')
 export class VerificationController {
@@ -51,31 +69,21 @@ export class VerificationController {
     return this.verificationService.confirmVerification(req.user.id, body.verifiedData);
   }
 
-  // ── Upload license photo ───────────────────────────────────────────────────
+  // ── Upload license photo to Cloudinary ────────────────────────────────────
   @Post('license/photo')
   @UseGuards(AuthGuard('jwt'))
   @UseInterceptors(FileInterceptor('photo', {
-    storage: diskStorage({
-      destination: (_req, _file, cb) => {
-        const dir = join(process.cwd(), 'uploads', 'licenses');
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        cb(null, dir);
-      },
-      filename: (req: any, file, cb) => {
-        const ext = extname(file.originalname) || '.jpg';
-        cb(null, `license-${req.user?.id}-${Date.now()}${ext}`);
-      },
-    }),
-    fileFilter: (_req, file, cb) => {
+    storage: memoryStorage(),
+    fileFilter: (_r, file, cb) => {
       if (file.mimetype.startsWith('image/')) cb(null, true);
       else cb(new BadRequestException('Only image files are allowed'), false);
     },
-    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
+    limits: { fileSize: 5 * 1024 * 1024 },
   }))
   async uploadLicensePhoto(@Request() req: any, @UploadedFile() file: Express.Multer.File) {
     if (!file) throw new BadRequestException('No file uploaded');
-    const baseUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3001}`;
-    const licensePhotoUrl = `${baseUrl}/uploads/licenses/${file.filename}`;
+    const publicId = `license-${req.user?.id}-${Date.now()}`;
+    const licensePhotoUrl = await uploadToCloudinary(file.buffer, publicId);
     return { licensePhotoUrl };
   }
 
