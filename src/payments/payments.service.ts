@@ -335,7 +335,9 @@ export class PaymentsService {
       );
     }
 
-    const payoutAmount = escrowPayment.transporterPayout || Number(escrowPayment.amount) * this.TRANSPORTER_SHARE;
+    const releaseJob = await this.jobRepo.findOne({ where: { id: jobId } });
+    const fallbackBreakdown = this.calculatePayout(Number(escrowPayment.amount), releaseJob?.distanceKm ? Number(releaseJob.distanceKm) : undefined);
+    const payoutAmount = escrowPayment.transporterPayout || fallbackBreakdown.transporterAmount;
     const payoutKobo = Math.round(payoutAmount * 100);
 
     const transferRef = `TRAC-PAYOUT-${jobId}-${Date.now()}`;
