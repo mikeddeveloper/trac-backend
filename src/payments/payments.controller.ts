@@ -108,13 +108,19 @@ export class PaymentsController {
   }
 
   // ─── POST /payments/release/:jobId ───────────────────────────────────────────
+  // Customer confirms delivery — marks payment as available for transporter withdrawal
   @Post('release/:jobId')
   @UseGuards(AuthGuard('jwt'))
-  async releaseEscrow(
-    @Param('jobId') jobId: string,
-    @Body() body?: { recipientCode?: string },
-  ) {
-    return this.paymentsService.releaseEscrow(jobId, body?.recipientCode);
+  async releaseEscrow(@Param('jobId') jobId: string) {
+    return this.paymentsService.releaseEscrow(jobId);
+  }
+
+  // ─── POST /payments/withdraw/:jobId ──────────────────────────────────────────
+  // Transporter initiates withdrawal — triggers actual Paystack bank transfer
+  @Post('withdraw/:jobId')
+  @UseGuards(AuthGuard('jwt'))
+  async withdrawEarnings(@Param('jobId') jobId: string, @Req() req: any) {
+    return this.paymentsService.withdrawEarnings(jobId, req.user.id);
   }
 
   // ─── POST /payments/webhook ──────────────────────────────────────────────────

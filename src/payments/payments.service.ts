@@ -307,91 +307,105 @@ export class PaymentsService {
   // Called when customer confirms delivery
   // Sends 90% to transporter, keeps 10% as Trac commission
 
-  async releaseEscrow(jobId: string, transporterRecipientCode?: string): Promise<Payment> {
-    // Find the payment for this job
+  // ─── Release Escrow (customer confirms delivery) ────────────────────────────
+  // Marks payment as available for transporter withdrawal — no Paystack call here.
+  // Transporter initiates the actual bank transfer from their Earnings page.
+
+  async releaseEscrow(jobId: string): Promise<{ message: string }> {
     const payment = await this.paymentRepo.findOne({
-      where: { jobId, status: PaymentStatus.SUCCESS },
+      where: [
+        { jobId, status: PaymentStatus.SUCCESS },
+        { jobId, status: PaymentStatus.HELD },
+      ],
     });
 
-    if (!payment) {
-      const heldPayment = await this.paymentRepo.findOne({
-        where: { jobId, status: PaymentStatus.HELD },
+    if (!payment) throw new NotFoundException('No confirmed payment found for this job');
+    if (payment.status === PaymentStatus.RELEASED) return { message: 'Payment already released' };
+
+    await this.paymentRepo.update(payment.id, { status: PaymentStatus.RELEASED });
+    this.logger.log(`✅ Escrow released for job ${jobId} — available for withdrawal`);
+
+    // Notify transporter
+    const job = await this.jobRepo.findOne({ where: { id: jobId } });
+    if (job?.transporterId) {
+      const amount = Number(payment.transporterPayout || Number(payment.amount) * this.TRANSPORTER_SHARE).toLocaleString('en-NG');
+      this.eventsGateway.notifyUser(job.transporterId, 'payment:available', {
+        jobId,
+        amount: payment.transporterPayout,
+        message: `₦${amount} is now available! Go to Earnings to withdraw.`,
       });
-      if (!heldPayment) throw new NotFoundException('No confirmed payment found for this job');
+      await this.pushService.sendToUser(job.transporterId, {
+        title: '💰 Payment Available!',
+        body: `₦${amount} is ready to withdraw for your delivery.`,
+        url: '/dashboard/earnings',
+        tag: 'payout',
+        icon: '/icons/icon-192x192.png',
+      }).catch(() => {});
     }
 
-    const escrowPayment = payment || await this.paymentRepo.findOne({ where: { jobId } });
-    if (!escrowPayment) throw new NotFoundException('Payment not found');
+    return { message: 'Payment released. Transporter can now withdraw from their Earnings page.' };
+  }
 
-    // Auto-look up the transporter's recipient code if not supplied
-    if (!transporterRecipientCode) {
-      const job = await this.jobRepo.findOne({ where: { id: jobId } });
-      if (job?.transporterId) {
-        const transporter = await this.userRepo.findOne({ where: { id: job.transporterId } });
-        transporterRecipientCode = transporter?.recipientCode ?? undefined;
-      }
-    }
+  // ─── Withdraw Earnings (transporter initiates payout) ───────────────────────
+  // Called when transporter clicks Withdraw on the Earnings page.
+  // This is where the actual Paystack transfer happens.
 
-    if (!transporterRecipientCode) {
-      throw new BadRequestException(
-        'Transporter has not set up a bank account for payouts. Please ask them to add their bank details in the Earnings page.',
-      );
-    }
+  async withdrawEarnings(jobId: string, transporterId: string): Promise<{ message: string }> {
+    const payment = await this.paymentRepo.findOne({
+      where: { jobId, status: PaymentStatus.RELEASED, type: PaymentType.ESCROW },
+    });
 
-    const releaseJob = await this.jobRepo.findOne({ where: { id: jobId } });
-    const fallbackBreakdown = this.calculatePayout(Number(escrowPayment.amount), releaseJob?.distanceKm ? Number(releaseJob.distanceKm) : undefined);
-    const payoutAmount = escrowPayment.transporterPayout || fallbackBreakdown.transporterPayout;
-    const payoutKobo = Math.round(payoutAmount * 100);
+    if (!payment) throw new NotFoundException('No available payout found for this job. Ensure the customer has confirmed delivery.');
 
-    const transferRef = `TRAC-PAYOUT-${jobId}-${Date.now()}`;
+    const job = await this.jobRepo.findOne({ where: { id: jobId } });
+    if (!job || job.transporterId !== transporterId) throw new UnauthorizedException('This job does not belong to you');
+
+    const transporter = await this.userRepo.findOne({ where: { id: transporterId } });
+    const recipientCode = transporter?.recipientCode;
+    if (!recipientCode) throw new BadRequestException('Please add your bank account in Earnings before withdrawing.');
+
+    const releaseJob = job;
+    const fallbackBreakdown = this.calculatePayout(Number(payment.amount), releaseJob?.distanceKm ? Number(releaseJob.distanceKm) : undefined);
+    const payoutAmount = Number(payment.transporterPayout) || fallbackBreakdown.transporterPayout;
+    const payoutKobo   = Math.round(payoutAmount * 100);
+    const transferRef  = `TRAC-PAYOUT-${jobId}-${Date.now()}`;
 
     try {
-      // Initiate Paystack transfer
       await axios.post(
         `${this.paystackUrl}/transfer`,
         {
           source: 'balance',
           amount: payoutKobo,
-          recipient: transporterRecipientCode,
-          reason: `Trac Marketplace payout for job ${jobId}`,
+          recipient: recipientCode,
+          reason: `Trac payout for job ${jobId}`,
           reference: transferRef,
         },
         { headers: this.headers },
       );
 
-      this.logger.log(`💸 Transfer initiated: ₦${payoutAmount} to ${transporterRecipientCode}`);
+      this.logger.log(`💸 Withdrawal initiated: ₦${payoutAmount} → ${recipientCode}`);
 
-      // Update payment status to held (pending transfer confirmation)
-      await this.paymentRepo.update(escrowPayment.id, {
-        status: PaymentStatus.HELD,
-      });
+      await this.paymentRepo.update(payment.id, { status: PaymentStatus.HELD });
 
-      // Create a release payment record
-      const releasePayment = this.paymentRepo.create({
+      const releaseRecord = this.paymentRepo.create({
         reference: transferRef,
         amount: payoutAmount,
         status: PaymentStatus.PENDING,
         type: PaymentType.RELEASE,
         jobId,
-        customerId: escrowPayment.customerId,
-        tracCommission: escrowPayment.tracCommission,
+        customerId: payment.customerId,
+        tracCommission: payment.tracCommission,
         transporterPayout: payoutAmount,
-        customerCashback: escrowPayment.customerCashback,
+        customerCashback: payment.customerCashback,
       });
-      await this.paymentRepo.save(releasePayment);
+      await this.paymentRepo.save(releaseRecord);
 
-      return releasePayment;
+      return { message: `₦${payoutAmount.toLocaleString('en-NG')} withdrawal initiated. Arrives in your bank shortly.` };
     } catch (error) {
       const paystackError = (error as any)?.response?.data;
       const errorMsg = paystackError?.message || (error as any)?.message || 'Unknown error';
-      const errorCode = paystackError?.code;
-      this.logger.error(
-        `❌ releaseEscrow failed for job ${jobId}: [${errorCode}] ${errorMsg}`,
-        JSON.stringify(paystackError ?? {}),
-      );
-      throw new BadRequestException(
-        `Transfer failed: ${errorMsg}. Ensure your Paystack balance has sufficient funds and Transfer OTP is disabled (Settings → Preferences).`,
-      );
+      this.logger.error(`❌ withdrawEarnings failed for job ${jobId}: ${errorMsg}`);
+      throw new BadRequestException(`Withdrawal failed: ${errorMsg}. Ensure your Paystack balance has sufficient funds.`);
     }
   }
 
@@ -455,28 +469,49 @@ export class PaymentsService {
   // ─── Get transporter earnings ────────────────────────────────────────────────
 
   async getTransporterEarnings(transporterId: string) {
-    // Get all payments for jobs assigned to this transporter
     const payments = await this.paymentRepo
       .createQueryBuilder('payment')
       .innerJoin('jobs', 'job', 'job.id = payment.jobId')
       .where('job.transporterId = :transporterId', { transporterId })
+      .andWhere('payment.type = :type', { type: PaymentType.ESCROW })
       .getMany();
 
-    const totalEarned = payments
-      .filter(p => p.status === PaymentStatus.RELEASED)
-      .reduce((s, p) => s + Number(p.transporterPayout || 0), 0);
+    // Jobs to include route info for available payments
+    const availablePayments = payments.filter(p => p.status === PaymentStatus.RELEASED);
+    const jobIds = availablePayments.map(p => p.jobId).filter(Boolean);
+    let jobMap: Record<string, any> = {};
+    if (jobIds.length > 0) {
+      const jobs = await this.jobRepo.findByIds(jobIds);
+      jobMap = Object.fromEntries(jobs.map(j => [j.id, j]));
+    }
 
     const pendingPayout = payments
-      .filter(p => p.status === PaymentStatus.SUCCESS || p.status === PaymentStatus.HELD)
+      .filter(p => p.status === PaymentStatus.SUCCESS)
+      .reduce((s, p) => s + Number(p.transporterPayout || 0), 0);
+
+    const availableToWithdraw = availablePayments
+      .reduce((s, p) => s + Number(p.transporterPayout || 0), 0);
+
+    const totalEarned = payments
+      .filter(p => p.status === PaymentStatus.HELD)
       .reduce((s, p) => s + Number(p.transporterPayout || 0), 0);
 
     const totalCommissionPaid = payments
-      .filter(p => p.status === PaymentStatus.RELEASED)
+      .filter(p => p.status === PaymentStatus.HELD)
       .reduce((s, p) => s + Number(p.tracCommission || 0), 0);
 
     return {
       totalEarned,
       pendingPayout,
+      availableToWithdraw,
+      availableJobs: availablePayments.map(p => ({
+        jobId: p.jobId,
+        amount: Number(p.transporterPayout || 0),
+        route: jobMap[p.jobId]
+          ? `${jobMap[p.jobId].pickupState} → ${jobMap[p.jobId].deliveryState}`
+          : 'Delivery',
+        paidAt: p.paidAt,
+      })),
       totalCommissionPaid,
       totalJobs: payments.length,
     };
