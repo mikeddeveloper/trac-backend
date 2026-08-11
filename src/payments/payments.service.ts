@@ -390,9 +390,7 @@ export class PaymentsService {
         JSON.stringify(paystackError ?? {}),
       );
       throw new BadRequestException(
-        `Transfer failed: ${errorMsg}. ` +
-        `Check your Paystack dashboard — ensure Transfer OTP is disabled (Settings → Preferences) ` +
-        `and your test balance is funded.`,
+        `Transfer failed: ${errorMsg}. Ensure your Paystack balance has sufficient funds and Transfer OTP is disabled (Settings → Preferences).`,
       );
     }
   }
