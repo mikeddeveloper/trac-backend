@@ -328,7 +328,7 @@ export class PaymentsService {
     // Notify transporter
     const job = await this.jobRepo.findOne({ where: { id: jobId } });
     if (job?.transporterId) {
-      const amount = Number(payment.transporterPayout || Number(payment.amount) * this.TRANSPORTER_SHARE).toLocaleString('en-NG');
+      const amount = Number(payment.transporterPayout || payment.amount).toLocaleString('en-NG');
       this.eventsGateway.notifyUser(job.transporterId, 'payment:available', {
         jobId,
         amount: payment.transporterPayout,

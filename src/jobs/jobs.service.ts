@@ -202,7 +202,7 @@ export class JobsService {
           icon: '/icons/icon-192x192.png',
         }).catch(() => {});
       }
-      this.eventsGateway.notifyUser(transporterId, 'otp:generated:transporter', {
+      this.eventsGateway.notifyUser(userId, 'otp:generated:transporter', {
         jobId, message: 'Delivery PIN sent to customer. Ask them for it when you arrive.',
       });
     } else {
