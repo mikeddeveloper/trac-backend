@@ -234,19 +234,20 @@ export class JobsService {
       });
     }
 
-    // ── Delivered event + auto-release escrow ──
+    // ── Delivered event — customer must confirm receipt to release payment ──
     if (newStatus === JobStatus.DELIVERED) {
       if (updatedJob.customerId) {
         this.eventsGateway.notifyUser(updatedJob.customerId, 'job:delivered', {
           jobId,
-          message: 'Your delivery has been confirmed. Payment is being released to the transporter.',
+          message: 'Your goods have arrived! Please confirm receipt or raise a dispute.',
         });
+        await this.pushService.sendToUser(updatedJob.customerId, {
+          title: '📦 Goods Delivered!',
+          body: 'Open Trac to confirm you received your goods and release payment to the driver.',
+          url: '/dashboard/tracking',
+          tag: 'confirm-receipt',
+        }).catch(() => {});
       }
-      // Trac auto-releases the escrow — no customer action needed
-      this.paymentsService.releaseEscrow(jobId).catch((err) => {
-        this.logger.warn(`Auto-release failed for job ${jobId}: ${err?.message}`);
-        // Non-blocking: job is marked delivered regardless; admin can manually trigger release
-      });
     }
 
     // ── Push notifications ──
@@ -428,6 +429,76 @@ export class JobsService {
     }
 
     return updatedJob;
+  }
+
+  // ─── Confirm Receipt ─────────────────────────────────────────────────────
+
+  async confirmReceipt(jobId: string, customerId: string): Promise<{ message: string }> {
+    const job = await this.getJobById(jobId);
+    if (job.customerId !== customerId) throw new ForbiddenException('This is not your job');
+    if (job.status !== JobStatus.DELIVERED) throw new BadRequestException('Job must be delivered first');
+    if (job.disputeRaised) throw new BadRequestException('A dispute has been raised for this job');
+    if (job.customerConfirmed) return { message: 'Receipt already confirmed' };
+
+    await this.jobRepo.update(jobId, {
+      customerConfirmed: true,
+      customerConfirmedAt: new Date(),
+    });
+
+    // Notify transporter
+    if (job.transporterId) {
+      this.eventsGateway.notifyUser(job.transporterId, 'payment:released', {
+        jobId,
+        message: 'Customer confirmed receipt! Your payment is now available to withdraw.',
+      });
+      await this.pushService.sendToUser(job.transporterId, {
+        title: '✅ Payment Available!',
+        body: 'Customer confirmed delivery. Go to Earnings to withdraw your payment.',
+        url: '/dashboard/earnings',
+        tag: 'payment-released',
+      }).catch(() => {});
+    }
+
+    // Release escrow
+    await this.paymentsService.releaseEscrow(jobId);
+
+    return { message: 'Receipt confirmed. Payment released to transporter.' };
+  }
+
+  // ─── Raise Dispute ────────────────────────────────────────────────────────
+
+  async raiseDispute(jobId: string, customerId: string, reason: string): Promise<{ message: string }> {
+    const job = await this.getJobById(jobId);
+    if (job.customerId !== customerId) throw new ForbiddenException('This is not your job');
+    if (job.status !== JobStatus.DELIVERED) throw new BadRequestException('Job must be delivered to raise a dispute');
+    if (job.customerConfirmed) throw new BadRequestException('You have already confirmed receipt');
+    if (job.disputeRaised) return { message: 'Dispute already raised' };
+
+    await this.jobRepo.update(jobId, {
+      disputeRaised: true,
+      disputeReason: reason,
+      disputeRaisedAt: new Date(),
+    });
+
+    // Notify admin via email
+    await this.emailService.sendDisputeEmail({
+      jobId,
+      customerId,
+      customerName: job.customer?.fullName || 'Unknown',
+      reason,
+      route: `${job.pickupState} → ${job.deliveryState}`,
+      amount: Number(job.acceptedAmount),
+    }).catch(() => {});
+
+    // Notify transporter
+    if (job.transporterId) {
+      this.eventsGateway.notifyUser(job.transporterId, 'job:dispute', {
+        jobId,
+        message: 'The customer has raised a dispute. Payment is frozen pending review.',
+      });
+    }
+
+    return { message: 'Dispute raised. Our team will review and contact you within 24 hours.' };
   }
 
   // ─── Messages ─────────────────────────────────────────────────────────────

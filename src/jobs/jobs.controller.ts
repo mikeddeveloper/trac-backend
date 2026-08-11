@@ -91,6 +91,22 @@ export class JobsController {
     return this.jobsService.verifyDeliveryOtp(id, req.user.id, body.otp);
   }
 
+  // ─── POST /jobs/:id/confirm-receipt ──────────────────────────────────────
+  @Post(':id/confirm-receipt')
+  async confirmReceipt(@Param('id') id: string, @Req() req: any) {
+    return this.jobsService.confirmReceipt(id, req.user.id);
+  }
+
+  // ─── POST /jobs/:id/dispute ───────────────────────────────────────────────
+  @Post(':id/dispute')
+  async raiseDispute(
+    @Param('id') id: string,
+    @Req() req: any,
+    @Body() body: { reason: string },
+  ) {
+    return this.jobsService.raiseDispute(id, req.user.id, body.reason || 'No reason provided');
+  }
+
   // ─── POST /jobs/:id/proof ──────────────────────────────────────────────────
   // Day 16: Transporter uploads proof of delivery photo
   // Accepts multipart/form-data with field name "proof"

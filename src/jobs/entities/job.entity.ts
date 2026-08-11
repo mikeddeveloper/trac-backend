@@ -92,6 +92,22 @@ export class Job {
   @Column({ default: false })
   otpVerified!: boolean;
 
+  // ─── Customer Confirmation & Dispute ─────────────────────────────────────
+  @Column({ default: false })
+  customerConfirmed!: boolean;
+
+  @Column({ nullable: true, type: 'timestamp' })
+  customerConfirmedAt!: Date;
+
+  @Column({ default: false })
+  disputeRaised!: boolean;
+
+  @Column({ nullable: true })
+  disputeReason!: string;
+
+  @Column({ nullable: true, type: 'timestamp' })
+  disputeRaisedAt!: Date;
+
   // ─── Goods Declaration ────────────────────────────────────────────────────
   @Column({ nullable: true })
   goodsCategory!: string;

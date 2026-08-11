@@ -512,4 +512,55 @@ export class EmailService {
       return { success: false };
     }
   }
+
+  async sendDisputeEmail(dispute: {
+    jobId: string;
+    customerId: string;
+    customerName: string;
+    reason: string;
+    route: string;
+    amount: number;
+  }) {
+    const html = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#F8FAFC;font-family:'Helvetica Neue',Arial,sans-serif;">
+<div style="max-width:600px;margin:0 auto;padding:40px 20px;">
+  <div style="background:linear-gradient(135deg,#1E3A5F,#2A4F7C);border-radius:16px;padding:32px;text-align:center;margin-bottom:24px;">
+    <h1 style="color:#F87171;font-size:1.8rem;font-weight:900;margin:0;">⚠️ Dispute Raised</h1>
+  </div>
+  <div style="background:white;border-radius:16px;padding:32px;margin-bottom:24px;box-shadow:0 4px 16px rgba(0,0,0,0.06);">
+    <h2 style="color:#1E3A5F;font-size:1.2rem;font-weight:800;margin:0 0 16px;">A customer has raised a delivery dispute</h2>
+    <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+      <tr><td style="padding:8px 0;color:#64748B;width:140px;">Job ID</td><td style="color:#1E3A5F;font-weight:600;">${dispute.jobId}</td></tr>
+      <tr><td style="padding:8px 0;color:#64748B;">Customer</td><td style="color:#1E3A5F;font-weight:600;">${dispute.customerName}</td></tr>
+      <tr><td style="padding:8px 0;color:#64748B;">Route</td><td style="color:#1E3A5F;font-weight:600;">${dispute.route}</td></tr>
+      <tr><td style="padding:8px 0;color:#64748B;">Amount (Held)</td><td style="color:#DC2626;font-weight:800;">₦${Number(dispute.amount).toLocaleString()}</td></tr>
+      <tr><td style="padding:8px 0;color:#64748B;vertical-align:top;">Reason</td><td style="color:#1E3A5F;font-weight:600;">${dispute.reason}</td></tr>
+    </table>
+    <div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:12px;padding:16px;margin-top:20px;">
+      <p style="color:#DC2626;font-size:0.85rem;margin:0;font-weight:600;">Payment is frozen. Please review and resolve within 24 hours.</p>
+    </div>
+  </div>
+</div>
+</body>
+</html>`;
+
+    try {
+      const adminEmail = this.configService.get<string>('ADMIN_EMAIL') || 'mikeddev6@gmail.com';
+      const { data, error } = await this.resend.emails.send({
+        from: 'Trac Logistics <admin@traclogistics.com.ng>',
+        to: adminEmail,
+        subject: `⚠️ Dispute Raised — Job ${dispute.jobId.slice(0, 8)}`,
+        html,
+      });
+      if (error) { this.logger.error('Dispute email error:', JSON.stringify(error)); return { success: false }; }
+      this.logger.log(`✅ Dispute email sent to admin`);
+      return { success: true, data };
+    } catch (error: any) {
+      this.logger.error('Dispute email error:', error?.message);
+      return { success: false };
+    }
+  }
 }
