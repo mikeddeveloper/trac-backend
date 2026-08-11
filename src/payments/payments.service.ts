@@ -316,6 +316,7 @@ export class PaymentsService {
       where: [
         { jobId, status: PaymentStatus.SUCCESS },
         { jobId, status: PaymentStatus.HELD },
+        { jobId, status: PaymentStatus.RELEASED },
       ],
     });
 
