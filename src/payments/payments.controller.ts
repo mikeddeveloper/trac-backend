@@ -112,9 +112,9 @@ export class PaymentsController {
   @UseGuards(AuthGuard('jwt'))
   async releaseEscrow(
     @Param('jobId') jobId: string,
-    @Body() body: { recipientCode: string },
+    @Body() body?: { recipientCode?: string },
   ) {
-    return this.paymentsService.releaseEscrow(jobId, body.recipientCode);
+    return this.paymentsService.releaseEscrow(jobId, body?.recipientCode);
   }
 
   // ─── POST /payments/webhook ──────────────────────────────────────────────────
@@ -124,8 +124,7 @@ export class PaymentsController {
     @Req() req: any,
     @Headers('x-paystack-signature') signature: string,
   ) {
-    const rawBody: Buffer = req.rawBody;
-    if (!rawBody) throw new Error('Raw body not available');
+    const rawBody: Buffer = req.rawBody ?? (Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body ?? {})));
     await this.paymentsService.handleWebhook(rawBody, signature);
     return { status: 'ok' };
   }

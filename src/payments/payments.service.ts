@@ -64,9 +64,12 @@ export class PaymentsService {
     metadata: Record<string, any> = {},
     currency: string = 'NGN',
   ) {
-    const reference    = `TRAC-${jobId}-${Date.now()}`;
-    const vatAmount    = +(amount * this.VAT_RATE).toFixed(2);
-    const totalCharged = +(amount + vatAmount).toFixed(2);
+    const reference  = `TRAC-${jobId}-${Date.now()}`;
+    const breakdown  = this.calculatePayout(amount);
+    // VAT is 7.5% on Trac's commission only — borne by Trac, not added to customer's bill
+    const vatAmount  = breakdown.vatOnCommission;
+    // Customer pays the agreed delivery amount only
+    const totalCharged = amount;
 
     try {
       const response = await axios.post(

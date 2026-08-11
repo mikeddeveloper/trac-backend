@@ -10,6 +10,7 @@ import helmet from 'helmet';
 import { json, urlencoded } from 'express';
 import { join } from 'path';
 import * as fs from 'fs';
+import * as express from 'express';
 
 const ALLOWED_ORIGINS = [
   'https://traclogistics.com.ng',
@@ -26,6 +27,9 @@ async function bootstrap() {
       ? ['error', 'warn', 'log']
       : ['error', 'warn', 'log', 'debug', 'verbose'],
   });
+
+  // Capture raw body for Paystack webhook signature verification
+  app.use('/api/payments/webhook', express.raw({ type: 'application/json' }));
 
   // ── Static files ───────────────────────────────────────────────────────────
   const uploadsDir = join(process.cwd(), 'uploads');
@@ -68,8 +72,8 @@ async function bootstrap() {
 
   // ── Input validation ───────────────────────────────────────────────────────
   app.useGlobalPipes(new ValidationPipe({
-    whitelist: true,        // strip unknown fields
-    forbidNonWhitelisted: false, // don't reject (some endpoints use Partial<>)
+    whitelist: true,
+    forbidNonWhitelisted: false,
     transform: true,
   }));
 
