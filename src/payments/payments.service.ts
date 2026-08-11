@@ -430,10 +430,11 @@ export class PaymentsService {
   calculatePayout(totalAmount: number, distanceKm?: number) {
     const rate              = this.commissionRate(distanceKm);
     const tracCommission    = +(totalAmount * rate).toFixed(2);
+    const vatOnCommission   = +(tracCommission * this.VAT_RATE).toFixed(2);
     const transporterPayout = +(totalAmount * (1 - rate)).toFixed(2);
     const customerCashback  = totalAmount >= this.CASHBACK_MIN
       ? +(totalAmount * this.CASHBACK_RATE).toFixed(2) : 0;
-    return { total: totalAmount, tracCommission, transporterPayout, customerCashback, commissionRate: rate };
+    return { total: totalAmount, tracCommission, vatOnCommission, transporterPayout, customerCashback, commissionRate: rate };
   }
 
   // ─── Get transactions ────────────────────────────────────────────────────────
