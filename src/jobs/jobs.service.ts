@@ -180,11 +180,38 @@ export class JobsService {
     const previousStatus = job.status;
     const route = `${job.pickupState} → ${job.deliveryState}`;
 
-    await this.jobRepo.update(jobId, {
-      status: newStatus,
-      ...(newStatus === JobStatus.IN_TRANSIT && { pickedUpAt: new Date() }),
-      ...(newStatus === JobStatus.DELIVERED  && { deliveredAt: new Date() }),
-    });
+    // Auto-generate delivery PIN when transporter goes in-transit
+    if (newStatus === JobStatus.IN_TRANSIT && !job.deliveryOtp) {
+      const pin = Math.floor(1000 + Math.random() * 9000).toString();
+      await this.jobRepo.update(jobId, {
+        status: newStatus,
+        pickedUpAt: new Date(),
+        deliveryOtp: pin,
+        otpGeneratedAt: new Date(),
+      });
+      if (job.customerId) {
+        this.eventsGateway.notifyUser(job.customerId, 'otp:generated', {
+          jobId, otp: pin,
+          message: `Your delivery PIN is ${pin}. The driver will ask for it on arrival. Do NOT share early.`,
+        });
+        await this.pushService.sendToUser(job.customerId, {
+          title: '📦 Your Delivery is On the Way!',
+          body: `Delivery PIN: ${pin}. Share ONLY with driver when goods arrive.`,
+          url: '/dashboard/tracking',
+          tag: 'delivery-pin',
+          icon: '/icons/icon-192x192.png',
+        }).catch(() => {});
+      }
+      this.eventsGateway.notifyUser(transporterId, 'otp:generated:transporter', {
+        jobId, message: 'Delivery PIN sent to customer. Ask them for it when you arrive.',
+      });
+    } else {
+      await this.jobRepo.update(jobId, {
+        status: newStatus,
+        ...(newStatus === JobStatus.IN_TRANSIT && { pickedUpAt: new Date() }),
+        ...(newStatus === JobStatus.DELIVERED  && { deliveredAt: new Date() }),
+      });
+    }
 
     const updatedJob = await this.getJobById(jobId);
     this.logger.log(`Job ${jobId}: ${previousStatus} → ${newStatus}`);
@@ -286,24 +313,31 @@ export class JobsService {
     }
 
     const pin = Math.floor(1000 + Math.random() * 9000).toString();
-
     await this.jobRepo.update(jobId, { deliveryOtp: pin, otpGeneratedAt: new Date() });
 
+    // PIN goes to CUSTOMER only — transporter asks customer for it verbally at delivery
     if (job.customerId) {
       this.eventsGateway.notifyUser(job.customerId, 'otp:generated', {
         jobId,
         otp: pin,
-        message: 'Your delivery PIN is ready. Share with driver AFTER receiving goods.',
+        message: `Your delivery PIN is ${pin}. The driver will ask for it when goods arrive. Do NOT share before receiving.`,
       });
+      await this.pushService.sendToUser(job.customerId, {
+        title: '📦 Delivery PIN Ready',
+        body: `Your delivery PIN is ${pin}. Share it with the driver ONLY after receiving your goods.`,
+        url: '/dashboard/tracking',
+        tag: 'delivery-pin',
+        icon: '/icons/icon-192x192.png',
+      }).catch(() => {});
     }
 
+    // Transporter is NOT sent the PIN — only told to ask the customer
     this.eventsGateway.notifyUser(transporterId, 'otp:generated:transporter', {
       jobId,
-      otp: pin,
-      message: 'PIN generated successfully. Ask customer for this PIN.',
+      message: 'Delivery PIN sent to customer. Ask them for the PIN when you arrive.',
     });
 
-    return { otp: pin, message: 'PIN generated successfully' };
+    return { otp: pin, message: 'PIN sent to customer' };
   }
 
   // ─── Verify Delivery OTP ──────────────────────────────────────────────────
