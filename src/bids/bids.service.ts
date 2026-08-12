@@ -29,7 +29,10 @@ export class BidsService {
   async placeBid(transporterId: string, jobId: string, amount: number, note?: string): Promise<Bid> {
     const transporter = await this.userRepo.findOne({ where: { id: transporterId } });
     if (!transporter?.isVerified) {
-      throw new ForbiddenException('You must complete identity verification before bidding on jobs. Please go to Verification page.');
+      throw new ForbiddenException('Please verify your NIN first before bidding on jobs.');
+    }
+    if ((transporter as any).licenseStatus !== 'approved') {
+      throw new ForbiddenException('Please submit your driver license and wait for admin approval before bidding on jobs.');
     }
 
     const job = await this.jobsService.findById(jobId);
