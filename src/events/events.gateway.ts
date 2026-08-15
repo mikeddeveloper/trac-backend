@@ -15,6 +15,9 @@ import { Server, Socket } from 'socket.io';
 import { Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Job } from '../jobs/entities/job.entity';
 
 const WS_ALLOWED_ORIGINS = [
   'https://traclogistics.com.ng',
@@ -53,6 +56,8 @@ export class EventsGateway
   constructor(
     private jwtService: JwtService,
     private configService: ConfigService,
+    @InjectRepository(Job)
+    private readonly jobRepo: Repository<Job>,
   ) {}
 
   afterInit() {
@@ -113,6 +118,9 @@ export class EventsGateway
     } else {
       const existing = this.pendingNotifications.get(userId) || [];
       existing.push({ event, data });
+      if (existing.length > 50) {
+        existing.splice(0, existing.length - 50);
+      }
       this.pendingNotifications.set(userId, existing);
       this.logger.log(`📬 Queued '${event}' for user ${userId} (not connected)`);
     }
@@ -121,14 +129,31 @@ export class EventsGateway
   // ─── Location update from transporter ────────────────────────────────────
 
   @SubscribeMessage('transporter:locationUpdate')
-  handleLocationUpdate(
-    @MessageBody() data: { jobId: string; lat: number; lng: number; customerId: string },
+  async handleLocationUpdate(
+    @MessageBody() data: { jobId: string; lat: number; lng: number },
     @ConnectedSocket() client: Socket,
   ) {
-    const { jobId, lat, lng, customerId } = data;
-    this.jobLocationMap.set(jobId, { lat, lng, updatedAt: new Date() });
+    const { jobId, lat, lng } = data;
+    if (
+      !jobId ||
+      !Number.isFinite(lat) ||
+      !Number.isFinite(lng) ||
+      Math.abs(lat) > 90 ||
+      Math.abs(lng) > 180
+    ) {
+      return { ok: false, error: 'Invalid location update' };
+    }
+
+    const job = await this.jobRepo.findOne({ where: { id: jobId } });
+    if (!job || job.transporterId !== client.data.userId || !job.customerId) {
+      return { ok: false, error: 'Not authorized for this job' };
+    }
+
+    const updatedAt = new Date();
+    this.jobLocationMap.set(jobId, { lat, lng, updatedAt });
     this.logger.log(`📍 Location update job ${jobId}: ${lat}, ${lng}`);
-    this.notifyUser(customerId, 'job:locationUpdate', { jobId, lat, lng, updatedAt: new Date() });
+    this.notifyUser(job.customerId, 'job:locationUpdate', { jobId, lat, lng, updatedAt });
+    return { ok: true };
   }
 
   // ─── Call accepted ────────────────────────────────────────────────────────

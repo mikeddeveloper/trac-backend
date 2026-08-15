@@ -108,6 +108,30 @@ export class JobsService {
     return job;
   }
 
+  toClientJob(job: Job, includeDeliveryDetails = false): Record<string, any> {
+    const safeParty = (user?: User) => user ? {
+      id: user.id,
+      fullName: user.fullName,
+      rating: Number(user.rating || 0),
+      totalRatings: user.totalRatings,
+      tripsCompleted: user.tripsCompleted,
+      avatarUrl: user.avatarUrl,
+      vehicleType: user.vehicleType,
+      state: user.state,
+    } : undefined;
+    const safeJob: Record<string, any> = {
+      ...job,
+      customer: safeParty(job.customer),
+      transporter: safeParty(job.transporter),
+    };
+    if (!includeDeliveryDetails) {
+      delete safeJob.deliveryOtp;
+      delete safeJob.disputeReason;
+      delete safeJob.proofOfDeliveryUrl;
+    }
+    return safeJob;
+  }
+
   async findById(jobId: string): Promise<Job> {
     return this.getJobById(jobId);
   }

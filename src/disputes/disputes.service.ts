@@ -41,11 +41,14 @@ export class DisputesService {
     if (!job) throw new NotFoundException('Job not found');
 
     // Only customer or transporter on the job can raise a dispute
-    if (userRole === 'customer' && job.customerId !== userId) {
+    if ((userRole === 'customer' || userRole === 'enterprise') && job.customerId !== userId) {
       throw new ForbiddenException('This is not your job');
     }
     if (userRole === 'transporter' && job.transporterId !== userId) {
       throw new ForbiddenException('You are not assigned to this job');
+    }
+    if (!['customer', 'enterprise', 'transporter'].includes(userRole)) {
+      throw new ForbiddenException('This account cannot raise disputes');
     }
 
     // Can only dispute active or delivered jobs
@@ -111,8 +114,22 @@ export class DisputesService {
 
   // ─── Get dispute by job ──────────────────────────────────────────────────────
 
-  async getDisputeByJob(jobId: string): Promise<Dispute | null> {
+  async getDisputeByJob(jobId: string, userId: string, role: string): Promise<Dispute | null> {
+    const job = await this.jobRepo.findOne({ where: { id: jobId } });
+    if (!job) throw new NotFoundException('Job not found');
+    if (role !== 'admin' && job.customerId !== userId && job.transporterId !== userId) {
+      throw new ForbiddenException('You are not a party to this job');
+    }
     return this.disputeRepo.findOne({ where: { jobId } });
+  }
+
+  async getDisputeByIdForUser(disputeId: string, userId: string, role: string): Promise<Dispute> {
+    const dispute = await this.getDisputeById(disputeId);
+    const job = await this.jobRepo.findOne({ where: { id: dispute.jobId } });
+    if (role !== 'admin' && job?.customerId !== userId && job?.transporterId !== userId) {
+      throw new ForbiddenException('You are not a party to this dispute');
+    }
+    return dispute;
   }
 
   // ─── Get single dispute ──────────────────────────────────────────────────────

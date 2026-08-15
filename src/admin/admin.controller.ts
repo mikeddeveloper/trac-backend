@@ -5,9 +5,10 @@ import { Controller, Get, Patch, Delete, Param, Query, Body, Req, Request, UseGu
 import { AuthGuard } from '@nestjs/passport';
 import { AdminService } from './admin.service';
 import { VerificationService } from '../verification/verification.service';
+import { AdminGuard } from './admin.guard';
 
 @Controller('admin')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), AdminGuard)
 export class AdminController {
   constructor(
     private readonly adminService: AdminService,

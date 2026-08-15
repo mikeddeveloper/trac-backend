@@ -10,6 +10,7 @@ import {
   Param,
   Req,
   UseGuards,
+  ForbiddenException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { DisputesService } from './disputes.service';
@@ -43,28 +44,33 @@ export class DisputesController {
 
   // ─── GET /disputes/job/:jobId ───────────────────────────────────────────────
   @Get('job/:jobId')
-  async getDisputeByJob(@Param('jobId') jobId: string) {
-    return this.disputesService.getDisputeByJob(jobId);
+  async getDisputeByJob(@Param('jobId') jobId: string, @Req() req: any) {
+    return this.disputesService.getDisputeByJob(jobId, req.user.id, req.user.role);
   }
 
+  // ─── GET /disputes/admin/all ────────────────────────────────────────────────
+  @Get('admin/all')
+  async getAllDisputes(@Req() req: any) {
+    if (req.user.role !== 'admin') throw new ForbiddenException('Admin access required');
+    return this.disputesService.getAllDisputes();
+  }
+
+  // Keep parameterized routes after fixed routes so "admin/all" is not treated as an ID.
   // ─── GET /disputes/:id ──────────────────────────────────────────────────────
   @Get(':id')
-  async getDispute(@Param('id') id: string) {
-    return this.disputesService.getDisputeById(id);
+  async getDispute(@Param('id') id: string, @Req() req: any) {
+    return this.disputesService.getDisputeByIdForUser(id, req.user.id, req.user.role);
   }
 
   // ─── PATCH /disputes/:id/resolve ────────────────────────────────────────────
   @Patch(':id/resolve')
   async resolveDispute(
     @Param('id') id: string,
+    @Req() req: any,
     @Body() body: { resolutionNote: string },
   ) {
+    if (req.user.role !== 'admin') throw new ForbiddenException('Admin access required');
     return this.disputesService.resolveDispute(id, body.resolutionNote);
   }
 
-  // ─── GET /disputes/admin/all ────────────────────────────────────────────────
-  @Get('admin/all')
-  async getAllDisputes() {
-    return this.disputesService.getAllDisputes();
-  }
 }

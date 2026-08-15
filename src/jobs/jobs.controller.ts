@@ -14,6 +14,7 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -33,8 +34,12 @@ export class JobsController {
 
   // ─── GET /jobs/open ────────────────────────────────────────────────────────
   @Get('open')
-  async getOpenJobs() {
-    return this.jobsService.getOpenJobs();
+  async getOpenJobs(@Req() req: any) {
+    if (!['transporter', 'admin'].includes(req.user.role)) {
+      throw new ForbiddenException('Transporter access required');
+    }
+    const jobs = await this.jobsService.getOpenJobs();
+    return jobs.map((job) => this.jobsService.toClientJob(job, false));
   }
 
   // ─── GET /jobs/mine ────────────────────────────────────────────────────────
@@ -45,21 +50,33 @@ export class JobsController {
 
     console.log(`GET /jobs/mine — userId: ${userId}, role: ${role}`);
 
-    if (role === 'transporter') return this.jobsService.getTransporterJobs(userId);
-    if (role === 'customer' || role === 'enterprise') return this.jobsService.getMyJobs(userId);
+    if (role === 'transporter') {
+      const jobs = await this.jobsService.getTransporterJobs(userId);
+      return jobs.map((job) => this.jobsService.toClientJob(job, true));
+    }
+    if (role === 'customer' || role === 'enterprise') {
+      const jobs = await this.jobsService.getMyJobs(userId);
+      return jobs.map((job) => this.jobsService.toClientJob(job, true));
+    }
 
     // Fallback — merge both
     const [asCustomer, asTransporter] = await Promise.all([
       this.jobsService.getMyJobs(userId),
       this.jobsService.getTransporterJobs(userId),
     ]);
-    return [...asCustomer, ...asTransporter];
+    return [...asCustomer, ...asTransporter].map((job) => this.jobsService.toClientJob(job, true));
   }
 
   // ─── GET /jobs/:id ─────────────────────────────────────────────────────────
   @Get(':id')
-  async getJob(@Param('id') id: string) {
-    return this.jobsService.getJobById(id);
+  async getJob(@Param('id') id: string, @Req() req: any) {
+    const job = await this.jobsService.getJobById(id);
+    const isParty = job.customerId === req.user.id || job.transporterId === req.user.id;
+    const canBrowse = job.status === JobStatus.BIDDING && req.user.role === 'transporter';
+    if (!isParty && !canBrowse && req.user.role !== 'admin') {
+      throw new ForbiddenException('You cannot access this job');
+    }
+    return this.jobsService.toClientJob(job, isParty || req.user.role === 'admin');
   }
 
   // ─── PATCH /jobs/:id/status ────────────────────────────────────────────────

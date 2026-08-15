@@ -13,11 +13,12 @@ import { Rating } from '../ratings/entities/rating.entity';
 import { PushModule } from '../push/push.module';
 import { EventsModule } from '../events/events.module';
 import { VerificationModule } from '../verification/verification.module';
+import { AdminGuard } from './admin.guard';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Job, Payment, Dispute, User, Rating]), PushModule, EventsModule, VerificationModule],
   controllers: [AdminController],
-  providers: [AdminService],
+  providers: [AdminService, AdminGuard],
   exports: [AdminService],
 })
 export class AdminModule {}
