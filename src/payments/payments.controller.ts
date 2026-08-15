@@ -12,6 +12,7 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  ForbiddenException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { PaymentsService } from './payments.service';
@@ -24,14 +25,14 @@ export class PaymentsController {
   @Post('initialize')
   @UseGuards(AuthGuard('jwt'))
   async initializePayment(@Req() req: any, @Body() body: { jobId: string; amount: number; currency?: string }) {
-    return this.paymentsService.initializePayment(req.user.email, body.amount, body.jobId, { customerId: req.user.id }, body.currency || 'NGN');
+    return this.paymentsService.initializePayment(req.user.email, body.jobId, req.user.id);
   }
 
   // ─── GET /payments/verify/:reference ────────────────────────────────────────
   @Get('verify/:reference')
   @UseGuards(AuthGuard('jwt'))
-  async verifyPayment(@Param('reference') reference: string) {
-    return this.paymentsService.verifyPayment(reference);
+  async verifyPayment(@Param('reference') reference: string, @Req() req: any) {
+    return this.paymentsService.verifyPayment(reference, req.user.id);
   }
 
   // ─── GET /payments/payout/:amount ───────────────────────────────────────────
@@ -91,6 +92,7 @@ export class PaymentsController {
     @Req() req: any,
     @Body() body: { accountName: string; accountNumber: string; bankCode: string },
   ) {
+    if (req.user.role !== 'transporter') throw new ForbiddenException('Transporter access required');
     const code = await this.paymentsService.createTransferRecipient(
       body.accountName,
       body.accountNumber,
@@ -104,6 +106,7 @@ export class PaymentsController {
   @Post('simulate-release')
   @UseGuards(AuthGuard('jwt'))
   async simulateRelease(@Req() req: any) {
+    if (req.user.role !== 'transporter') throw new ForbiddenException('Transporter access required');
     return this.paymentsService.simulateRelease(req.user.id);
   }
 
@@ -111,8 +114,8 @@ export class PaymentsController {
   // Customer confirms delivery — marks payment as available for transporter withdrawal
   @Post('release/:jobId')
   @UseGuards(AuthGuard('jwt'))
-  async releaseEscrow(@Param('jobId') jobId: string) {
-    return this.paymentsService.releaseEscrow(jobId);
+  async releaseEscrow(@Param('jobId') jobId: string, @Req() req: any) {
+    return this.paymentsService.releaseEscrow(jobId, req.user.id);
   }
 
   // ─── POST /payments/withdraw/:jobId ──────────────────────────────────────────
@@ -120,6 +123,7 @@ export class PaymentsController {
   @Post('withdraw/:jobId')
   @UseGuards(AuthGuard('jwt'))
   async withdrawEarnings(@Param('jobId') jobId: string, @Req() req: any) {
+    if (req.user.role !== 'transporter') throw new ForbiddenException('Transporter access required');
     return this.paymentsService.withdrawEarnings(jobId, req.user.id);
   }
 

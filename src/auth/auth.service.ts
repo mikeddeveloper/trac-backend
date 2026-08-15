@@ -120,6 +120,32 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
+  async refreshTokens(refreshToken: string) {
+    if (!refreshToken) throw new UnauthorizedException('Refresh token is required');
+
+    let payload: { sub: string; email: string; role: string };
+    try {
+      payload = await this.jwtService.verifyAsync(refreshToken, {
+        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
+      });
+    } catch {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    const user = await this.usersService.findById(payload.sub);
+    if (user.isSuspended || !user.refreshToken) {
+      throw new UnauthorizedException('Session has been revoked');
+    }
+
+    const matches = await bcrypt.compare(refreshToken, user.refreshToken);
+    if (!matches) {
+      await this.usersService.updateRefreshToken(user.id, null);
+      throw new UnauthorizedException('Refresh token reuse detected');
+    }
+
+    return this.generateTokens(user.id, user.email, user.role);
+  }
+
   async googleLogin(googleUser: {
     googleId: string;
     email: string;
@@ -275,6 +301,7 @@ export class AuthService {
 
     const hashed = await bcrypt.hash(newPassword, 10);
     await this.usersService.updateProfile(userId, { password: hashed } as any);
+    await this.usersService.updateRefreshToken(userId, null);
 
     return { message: 'Password updated successfully' };
   }

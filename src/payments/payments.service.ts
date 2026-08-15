@@ -14,7 +14,7 @@ import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import * as crypto from 'crypto';
 import { Payment, PaymentStatus, PaymentType } from './entities/payment.entity';
-import { Job } from '../jobs/entities/job.entity';
+import { Job, JobStatus } from '../jobs/entities/job.entity';
 import { User } from '../users/entities/user.entity';
 import { EventsGateway } from '../events/events.gateway';
 import { PushService } from '../push/push.service';
@@ -59,13 +59,36 @@ export class PaymentsService {
 
   async initializePayment(
     email: string,
-    amount: number,
     jobId: string,
-    metadata: Record<string, any> = {},
-    currency: string = 'NGN',
+    customerId: string,
   ) {
+    const job = await this.jobRepo.findOne({ where: { id: jobId } });
+    if (!job) throw new NotFoundException('Job not found');
+    if (job.customerId !== customerId) throw new UnauthorizedException('This job does not belong to you');
+    if (!job.acceptedAmount || Number(job.acceptedAmount) <= 0) {
+      throw new BadRequestException('This job does not have an accepted bid');
+    }
+
+    const existing = await this.paymentRepo.findOne({
+      where: { jobId, customerId, type: PaymentType.ESCROW },
+      order: { createdAt: 'DESC' },
+    });
+    if (existing && existing.status !== PaymentStatus.FAILED) {
+      if (existing.status === PaymentStatus.PENDING && existing.authorizationUrl) {
+        return {
+          authorizationUrl: existing.authorizationUrl,
+          reference: existing.reference,
+          vatAmount: existing.vatAmount,
+          totalCharged: Number(existing.amount),
+        };
+      }
+      throw new BadRequestException('Payment has already been initialized for this job');
+    }
+
+    const amount = Number(job.acceptedAmount);
+    const currency = 'NGN';
     const reference  = `TRAC-${jobId}-${Date.now()}`;
-    const breakdown  = this.calculatePayout(amount);
+    const breakdown  = this.calculatePayout(amount, job.distanceKm ? Number(job.distanceKm) : undefined);
     // VAT is 7.5% on Trac's commission only — borne by Trac, not added to customer's bill
     const vatAmount  = breakdown.vatOnCommission;
     // Customer pays the agreed delivery amount only
@@ -79,15 +102,12 @@ export class PaymentsService {
           amount: Math.round(totalCharged * 100),
           reference,
           callback_url: `${this.configService.get('FRONTEND_URL') || 'https://traclogistics.com.ng'}/dashboard/payments`,
-          metadata: { jobId, ...metadata },
+          metadata: { jobId, customerId },
         },
         { headers: this.headers },
       );
 
       const { authorization_url, access_code } = response.data.data;
-      const job = await this.jobRepo.findOne({ where: { id: jobId } });
-      const breakdown = this.calculatePayout(amount, job?.distanceKm ? Number(job.distanceKm) : undefined);
-
       const payment = this.paymentRepo.create({
         reference,
         amount,
@@ -96,7 +116,7 @@ export class PaymentsService {
         type: PaymentType.ESCROW,
         authorizationUrl: authorization_url,
         jobId,
-        customerId: metadata.customerId,
+        customerId,
         tracCommission: breakdown.tracCommission,
         transporterPayout: breakdown.transporterPayout,
         customerCashback: breakdown.customerCashback,
@@ -113,13 +133,25 @@ export class PaymentsService {
 
   // ─── Verify Payment ─────────────────────────────────────────────────────────
 
-  async verifyPayment(reference: string) {
+  async verifyPayment(reference: string, customerId: string) {
+    const payment = await this.paymentRepo.findOne({ where: { reference } });
+    if (!payment || payment.customerId !== customerId) {
+      throw new NotFoundException('Payment not found');
+    }
     try {
       const response = await axios.get(
         `${this.paystackUrl}/transaction/verify/${reference}`,
         { headers: this.headers },
       );
       const data = response.data.data;
+
+      const amountMatches = Number(data.amount) === Math.round(Number(payment.amount) * 100);
+      const currencyMatches = data.currency === payment.currency;
+      const referenceMatches = data.reference === payment.reference;
+      if (!amountMatches || !currencyMatches || !referenceMatches) {
+        this.logger.error(`Payment verification mismatch for ${reference}`);
+        throw new BadRequestException('Payment details did not match the expected transaction');
+      }
 
       if (data.status === 'success') {
         await this.paymentRepo.update(
@@ -171,7 +203,7 @@ export class PaymentsService {
         break;
       case 'transfer.failed':
       case 'transfer.reversed':
-        this.logger.warn(`Transfer event: ${event.event}`);
+        await this.handleTransferFailure(event.data, event.event);
         break;
     }
   }
@@ -181,21 +213,18 @@ export class PaymentsService {
     this.logger.log(`✅ charge.success: ref=${reference}`);
 
     const payment = await this.paymentRepo.findOne({ where: { reference } });
-
     if (!payment) {
-      const amountNaira = amount / 100;
-      const relatedJob  = metadata?.jobId ? await this.jobRepo.findOne({ where: { id: metadata.jobId } }) : null;
-      const breakdown   = this.calculatePayout(amountNaira, relatedJob?.distanceKm ? Number(relatedJob.distanceKm) : undefined);
-      const newPayment  = this.paymentRepo.create({
-        reference, amount: amountNaira,
-        status: PaymentStatus.SUCCESS, type: PaymentType.ESCROW,
-        jobId: metadata?.jobId, customerId: metadata?.customerId,
-        paidAt: new Date(paid_at), paystackMeta: data,
-        tracCommission: breakdown.tracCommission,
-        transporterPayout: breakdown.transporterPayout,
-        customerCashback: breakdown.customerCashback,
-      });
-      await this.paymentRepo.save(newPayment);
+      this.logger.warn(`Ignoring charge.success for unknown reference ${reference}`);
+      return;
+    }
+
+    if (
+      Number(amount) !== Math.round(Number(payment.amount) * 100) ||
+      data.currency !== payment.currency ||
+      metadata?.jobId !== payment.jobId ||
+      metadata?.customerId !== payment.customerId
+    ) {
+      this.logger.error(`Ignoring mismatched charge.success for ${reference}`);
       return;
     }
 
@@ -269,6 +298,19 @@ export class PaymentsService {
     }
   }
 
+  private async handleTransferFailure(data: any, eventName: string): Promise<void> {
+    const release = await this.paymentRepo.findOne({ where: { reference: data.reference } });
+    if (!release) return;
+    await this.paymentRepo.update(release.id, { status: PaymentStatus.FAILED, paystackMeta: data });
+    if (release.jobId) {
+      await this.paymentRepo.update(
+        { jobId: release.jobId, type: PaymentType.ESCROW, status: PaymentStatus.HELD },
+        { status: PaymentStatus.RELEASED },
+      );
+    }
+    this.logger.warn(`${eventName}: ref=${data.reference}`);
+  }
+
   // ─── Create Paystack Transfer Recipient ─────────────────────────────────────
   // Called when transporter adds their bank account
 
@@ -311,7 +353,21 @@ export class PaymentsService {
   // Marks payment as available for transporter withdrawal — no Paystack call here.
   // Transporter initiates the actual bank transfer from their Earnings page.
 
-  async releaseEscrow(jobId: string): Promise<{ message: string }> {
+  async releaseEscrow(jobId: string, customerId?: string): Promise<{ message: string }> {
+    const job = await this.jobRepo.findOne({ where: { id: jobId } });
+    if (!job) throw new NotFoundException('Job not found');
+    if (customerId && job.customerId !== customerId) {
+      throw new UnauthorizedException('This job does not belong to you');
+    }
+    if (
+      job.status !== JobStatus.DELIVERED ||
+      !job.otpVerified ||
+      (customerId !== undefined && !job.customerConfirmed)
+    ) {
+      throw new BadRequestException('Delivery must be completed and confirmed with the delivery PIN');
+    }
+    if (job.disputeRaised) throw new BadRequestException('Payout is frozen while this job is disputed');
+
     const payment = await this.paymentRepo.findOne({
       where: [
         { jobId, status: PaymentStatus.SUCCESS },
@@ -327,7 +383,6 @@ export class PaymentsService {
     this.logger.log(`✅ Escrow released for job ${jobId} — available for withdrawal`);
 
     // Notify transporter
-    const job = await this.jobRepo.findOne({ where: { id: jobId } });
     if (job?.transporterId) {
       const amount = Number(payment.transporterPayout || payment.amount).toLocaleString('en-NG');
       this.eventsGateway.notifyUser(job.transporterId, 'payment:available', {
@@ -365,11 +420,22 @@ export class PaymentsService {
     const recipientCode = transporter?.recipientCode;
     if (!recipientCode) throw new BadRequestException('Please add your bank account in Earnings before withdrawing.');
 
+    const previousRelease = await this.paymentRepo.findOne({ where: { jobId, type: PaymentType.RELEASE } });
+    if (previousRelease && previousRelease.status !== PaymentStatus.FAILED) {
+      throw new BadRequestException('A withdrawal has already been initiated for this job');
+    }
+
+    const claimed = await this.paymentRepo.update(
+      { id: payment.id, status: PaymentStatus.RELEASED },
+      { status: PaymentStatus.HELD },
+    );
+    if (!claimed.affected) throw new BadRequestException('This payout is already being processed');
+
     const releaseJob = job;
     const fallbackBreakdown = this.calculatePayout(Number(payment.amount), releaseJob?.distanceKm ? Number(releaseJob.distanceKm) : undefined);
     const payoutAmount = Number(payment.transporterPayout) || fallbackBreakdown.transporterPayout;
     const payoutKobo   = Math.round(payoutAmount * 100);
-    const transferRef  = `TRAC-PAYOUT-${jobId}-${Date.now()}`;
+    const transferRef = `trac_payout_${jobId.replace(/-/g, '').slice(0, 18)}_${Date.now()}`;
 
     try {
       await axios.post(
@@ -386,8 +452,6 @@ export class PaymentsService {
 
       this.logger.log(`💸 Withdrawal initiated: ₦${payoutAmount} → ${recipientCode}`);
 
-      await this.paymentRepo.update(payment.id, { status: PaymentStatus.HELD });
-
       const releaseRecord = this.paymentRepo.create({
         reference: transferRef,
         amount: payoutAmount,
@@ -403,6 +467,10 @@ export class PaymentsService {
 
       return { message: `₦${payoutAmount.toLocaleString('en-NG')} withdrawal initiated. Arrives in your bank shortly.` };
     } catch (error) {
+      await this.paymentRepo.update(
+        { id: payment.id, status: PaymentStatus.HELD },
+        { status: PaymentStatus.RELEASED },
+      );
       const paystackError = (error as any)?.response?.data;
       const errorMsg = paystackError?.message || (error as any)?.message || 'Unknown error';
       this.logger.error(`❌ withdrawEarnings failed for job ${jobId}: ${errorMsg}`);
@@ -453,8 +521,16 @@ export class PaymentsService {
   // ─── Get transactions ────────────────────────────────────────────────────────
 
   async getTransactionsByUser(userId: string, role: 'customer' | 'transporter') {
-    const where = role === 'customer' ? { customerId: userId } : {};
-    return this.paymentRepo.find({ where, order: { createdAt: 'DESC' }, take: 50 });
+    if (role === 'customer') {
+      return this.paymentRepo.find({ where: { customerId: userId }, order: { createdAt: 'DESC' }, take: 50 });
+    }
+    return this.paymentRepo
+      .createQueryBuilder('payment')
+      .innerJoin('jobs', 'job', 'job.id = payment.jobId')
+      .where('job.transporterId = :userId', { userId })
+      .orderBy('payment.createdAt', 'DESC')
+      .take(50)
+      .getMany();
   }
 
   // ─── Get wallet balance ──────────────────────────────────────────────────────
@@ -521,6 +597,9 @@ export class PaymentsService {
   // ─── Simulate Release (test mode only) ──────────────────────────────────────
 
   async simulateRelease(transporterId: string): Promise<{ released: number; count: number }> {
+    if (this.configService.get('NODE_ENV') === 'production') {
+      throw new NotFoundException('Not found');
+    }
     // Find all escrow-held payments for this transporter's jobs
     const payments = await this.paymentRepo
       .createQueryBuilder('payment')

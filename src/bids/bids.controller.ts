@@ -25,8 +25,8 @@ export class BidsController {
   // GET /api/bids/job/:jobId — customer views all bids on their job
   @Get('job/:jobId')
   @UseGuards(AuthGuard('jwt'))
-  async getBidsForJob(@Param('jobId') jobId: string) {
-    const bids = await this.bidsService.getBidsForJob(jobId);
+  async getBidsForJob(@Param('jobId') jobId: string, @Request() req) {
+    const bids = await this.bidsService.getBidsForJob(jobId, req.user.id, req.user.role);
     return { bids };
   }
 

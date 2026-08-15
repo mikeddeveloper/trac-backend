@@ -40,7 +40,7 @@ import { PushSubscription } from './push/entities/push-subscription.entity';
         type: 'postgres',
         url: process.env.DATABASE_URL,
         entities: [User, Job, Bid, Payment, Rating, Dispute, PushSubscription],
-        synchronize: process.env.TYPEORM_SYNC !== 'false',
+        synchronize: process.env.NODE_ENV !== 'production' && process.env.TYPEORM_SYNC === 'true',
         ssl: process.env.NODE_ENV === 'production'
           ? { rejectUnauthorized: false }
           : false,

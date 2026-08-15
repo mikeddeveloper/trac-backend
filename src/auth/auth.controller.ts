@@ -29,6 +29,13 @@ export class AuthController {
     return this.authService.login(dto);
   }
 
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  async refresh(@Body() body: { refreshToken: string }) {
+    return this.authService.refreshTokens(body.refreshToken);
+  }
+
   @Post('change-password')
   @UseGuards(AuthGuard('jwt'))
   async changePassword(

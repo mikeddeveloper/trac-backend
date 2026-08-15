@@ -8,7 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Bid, BidStatus } from './entities/bid.entity';
-import { User } from '../users/entities/user.entity';
+import { User, UserRole } from '../users/entities/user.entity';
 import { JobsService } from '../jobs/jobs.service';
 import { JobStatus } from '../jobs/entities/job.entity';
 import { PushService } from '../push/push.service';
@@ -27,7 +27,13 @@ export class BidsService {
   ) {}
 
   async placeBid(transporterId: string, jobId: string, amount: number, note?: string): Promise<Bid> {
+    if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) {
+      throw new BadRequestException('Bid amount must be greater than zero');
+    }
     const transporter = await this.userRepo.findOne({ where: { id: transporterId } });
+    if (transporter?.role !== UserRole.TRANSPORTER) {
+      throw new ForbiddenException('Only transporters can place bids');
+    }
     if (!transporter?.isVerified) {
       throw new ForbiddenException('Please verify your NIN first before bidding on jobs.');
     }
@@ -68,7 +74,11 @@ export class BidsService {
     return saved;
   }
 
-  async getBidsForJob(jobId: string): Promise<Bid[]> {
+  async getBidsForJob(jobId: string, userId: string, role: string): Promise<Bid[]> {
+    const job = await this.jobsService.findById(jobId);
+    if (job.customerId !== userId && role !== 'admin') {
+      throw new ForbiddenException('You do not own this job');
+    }
     return this.bidsRepo.find({
       where: { jobId },
       relations: ['transporter'],

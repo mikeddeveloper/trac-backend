@@ -3,7 +3,7 @@
 
 import {
   Controller, Get, Patch, Delete, Body, Request, UseGuards,
-  UseInterceptors, UploadedFile, BadRequestException,
+  UseInterceptors, UploadedFile, BadRequestException, ForbiddenException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthGuard } from '@nestjs/passport';
@@ -152,7 +152,16 @@ export class UsersController {
   // GET /api/users/all (admin only)
   @Get('all')
   @UseGuards(AuthGuard('jwt'))
-  async getAllUsers() {
-    return this.usersService.findAll();
+  async getAllUsers(@Request() req: any) {
+    if (req.user.role !== 'admin') throw new ForbiddenException('Admin access required');
+    const users = await this.usersService.findAll();
+    return users.map((user) => {
+      const safeUser = { ...user };
+      delete (safeUser as any).password;
+      delete (safeUser as any).refreshToken;
+      delete (safeUser as any).emailOtp;
+      delete (safeUser as any).passwordResetToken;
+      return safeUser;
+    });
   }
 }
