@@ -18,25 +18,26 @@ export class CallingController {
   // Customer initiates a call — validates job state, returns Agora token
   @Post('initiate/:jobId')
   async initiateCall(@Param('jobId') jobId: string, @Req() req: any) {
-    const session = await this.callingService.initiateCall(jobId);
+    const session = await this.callingService.initiateCall(jobId, req.user.id);
     const callerName = req.user.fullName || req.user.firstName || 'Customer';
 
     // Notify transporter via socket
-    this.eventsGateway.server.emit(`call:incoming:${jobId}`, {
+    this.eventsGateway.emitToConnectedUser(session.transporterId, `call:incoming:${jobId}`, {
       jobId,
       channelName: session.channelName,
       callerName,
       callerId: req.user.id,
     });
 
-    return { ...session, callerName };
+    const { transporterId: _transporterId, ...publicSession } = session;
+    return { ...publicSession, callerName };
   }
 
   // ─── POST /calling/join/:jobId ───────────────────────────────────────────────
   // Transporter joins the call — gets their own token
   @Post('join/:jobId')
   async joinCall(@Param('jobId') jobId: string, @Req() req: any) {
-    const session = this.callingService.createCallSession(jobId, req.user.id, 'receiver');
+    const session = await this.callingService.createCallSession(jobId, req.user.id, 'receiver');
     return session;
   }
 
@@ -44,7 +45,7 @@ export class CallingController {
   // Get a fresh token (for reconnection)
   @Post('token/:jobId')
   async getToken(@Param('jobId') jobId: string, @Req() req: any) {
-    const session = this.callingService.createCallSession(jobId, req.user.id, 'publisher');
+    const session = await this.callingService.createCallSession(jobId, req.user.id, 'publisher');
     return session;
   }
 }

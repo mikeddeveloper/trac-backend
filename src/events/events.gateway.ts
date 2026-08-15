@@ -126,6 +126,13 @@ export class EventsGateway
     }
   }
 
+  emitToConnectedUser(userId: string, event: string, data: any): boolean {
+    const socketId = this.userSocketMap.get(userId);
+    if (!socketId) return false;
+    this.server.to(socketId).emit(event, data);
+    return true;
+  }
+
   // ─── Location update from transporter ────────────────────────────────────
 
   @SubscribeMessage('transporter:locationUpdate')
@@ -159,33 +166,40 @@ export class EventsGateway
   // ─── Call accepted ────────────────────────────────────────────────────────
 
   @SubscribeMessage('call:accepted')
-  handleCallAccepted(
+  async handleCallAccepted(
     @MessageBody() data: { jobId: string },
     @ConnectedSocket() client: Socket,
   ) {
-    this.server.emit(`call:accepted:${data.jobId}`, data);
+    const job = await this.getAuthorizedCallJob(data.jobId, client.data.userId, 'transporter');
+    if (!job) return { ok: false, error: 'Not authorized for this call' };
+    this.emitToConnectedUser(job.customerId, `call:accepted:${data.jobId}`, data);
     this.logger.log(`📞 Call accepted for job ${data.jobId}`);
   }
 
   // ─── Call declined ────────────────────────────────────────────────────────
 
   @SubscribeMessage('call:declined')
-  handleCallDeclined(
+  async handleCallDeclined(
     @MessageBody() data: { jobId: string },
     @ConnectedSocket() client: Socket,
   ) {
-    this.server.emit(`call:declined:${data.jobId}`, data);
+    const job = await this.getAuthorizedCallJob(data.jobId, client.data.userId, 'transporter');
+    if (!job) return { ok: false, error: 'Not authorized for this call' };
+    this.emitToConnectedUser(job.customerId, `call:declined:${data.jobId}`, data);
     this.logger.log(`📵 Call declined for job ${data.jobId}`);
   }
 
   // ─── Call cancelled ───────────────────────────────────────────────────────
 
   @SubscribeMessage('call:cancelled')
-  handleCallCancelled(
+  async handleCallCancelled(
     @MessageBody() data: { jobId: string },
     @ConnectedSocket() client: Socket,
   ) {
-    this.server.emit(`call:cancelled:${data.jobId}`, data);
+    const job = await this.getAuthorizedCallJob(data.jobId, client.data.userId);
+    if (!job) return { ok: false, error: 'Not authorized for this call' };
+    const recipientId = job.customerId === client.data.userId ? job.transporterId : job.customerId;
+    if (recipientId) this.emitToConnectedUser(recipientId, `call:cancelled:${data.jobId}`, data);
     this.logger.log(`❌ Call cancelled for job ${data.jobId}`);
   }
 
@@ -193,6 +207,14 @@ export class EventsGateway
 
   getJobLocation(jobId: string) {
     return this.jobLocationMap.get(jobId) || null;
+  }
+
+  private async getAuthorizedCallJob(jobId: string, userId: string, requiredRole?: 'transporter') {
+    if (!jobId || !userId) return null;
+    const job = await this.jobRepo.findOne({ where: { id: jobId } });
+    if (!job || (job.customerId !== userId && job.transporterId !== userId)) return null;
+    if (requiredRole === 'transporter' && job.transporterId !== userId) return null;
+    return job;
   }
 
   broadcast(event: string, data: any) {

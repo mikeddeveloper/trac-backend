@@ -1,7 +1,7 @@
 // trac-backend/src/calling/calling.service.ts
 // Day 26: In-app calling via Agora.io
 
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RtcTokenBuilder, RtcRole } from 'agora-token';
 import { JobsService } from '../jobs/jobs.service';
@@ -53,7 +53,7 @@ export class CallingService {
   }
 
   // ─── Initiate a call for a job ───────────────────────────────────────────────
-  async initiateCall(jobId: string): Promise<{ token: string; channelName: string; appId: string; uid: number }> {
+  async initiateCall(jobId: string, userId: string): Promise<{ token: string; channelName: string; appId: string; uid: number; transporterId: string }> {
     try {
       const appId = this.appId;
       if (!appId || !this.appCert) {
@@ -61,6 +61,10 @@ export class CallingService {
       }
 
       const job = await this.jobsService.findById(jobId);
+
+      if (job.customerId !== userId) {
+        throw new ForbiddenException('Only the customer for this job can initiate a call');
+      }
 
       if (!job.customerId || !job.transporterId) {
         throw new BadRequestException('Job does not have both customer and transporter assigned');
@@ -78,7 +82,7 @@ export class CallingService {
       const uid = 0;
       const token = this.generateToken(channelName, uid);
 
-      return { token, channelName, appId, uid };
+      return { token, channelName, appId, uid, transporterId: job.transporterId };
     } catch (err) {
       this.logger.error('initiateCall failed', err instanceof Error ? err.stack : String(err));
       throw err;
@@ -86,14 +90,24 @@ export class CallingService {
   }
 
   // ─── Create call session (join / token refresh) ──────────────────────────────
-  createCallSession(jobId: string, _userId: string, role: 'caller' | 'receiver' | 'publisher'): {
+  async createCallSession(jobId: string, userId: string, role: 'caller' | 'receiver' | 'publisher'): Promise<{
     appId: string;
     channelName: string;
     token: string;
     uid: number;
-  } {
+  }> {
     const appId = this.appId;
     if (!appId) throw new BadRequestException('Agora not configured');
+
+    const job = await this.jobsService.findById(jobId);
+    const isCustomer = job.customerId === userId;
+    const isTransporter = job.transporterId === userId;
+    if (!isCustomer && !isTransporter) {
+      throw new ForbiddenException('You are not a party to this job');
+    }
+    if (role === 'receiver' && !isTransporter) {
+      throw new ForbiddenException('Only the assigned transporter can join this call');
+    }
 
     const channelName = this.getChannelName(jobId);
 
