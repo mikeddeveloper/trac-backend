@@ -55,6 +55,21 @@ export class PaymentsService {
     };
   }
 
+  private async getAvailablePaystackBalanceKobo(): Promise<number> {
+    try {
+      const response = await axios.get(`${this.paystackUrl}/balance`, { headers: this.headers });
+      const balances = Array.isArray(response.data?.data) ? response.data.data : [];
+      const naira = balances.find((entry: any) => entry.currency === 'NGN');
+      if (!naira || !Number.isFinite(Number(naira.balance))) {
+        throw new Error('NGN balance was not returned');
+      }
+      return Number(naira.balance);
+    } catch (error) {
+      this.logger.error('Paystack balance check failed', (error as any)?.response?.data || (error as any)?.message);
+      throw new BadRequestException('Could not confirm the payout balance. Please try again shortly.');
+    }
+  }
+
   // ─── Initialize Payment ─────────────────────────────────────────────────────
 
   async initializePayment(
@@ -425,20 +440,39 @@ export class PaymentsService {
       throw new BadRequestException('A withdrawal has already been initiated for this job');
     }
 
+    const fallbackBreakdown = this.calculatePayout(
+      Number(payment.amount),
+      job.distanceKm ? Number(job.distanceKm) : undefined,
+    );
+    const payoutAmount = Number(payment.transporterPayout) || fallbackBreakdown.transporterPayout;
+    const payoutKobo = Math.round(payoutAmount * 100);
+    const availableBalanceKobo = await this.getAvailablePaystackBalanceKobo();
+    if (availableBalanceKobo < payoutKobo) {
+      throw new BadRequestException('Payout is temporarily unavailable because the transfer balance needs to be topped up.');
+    }
+
     const claimed = await this.paymentRepo.update(
       { id: payment.id, status: PaymentStatus.RELEASED },
       { status: PaymentStatus.HELD },
     );
     if (!claimed.affected) throw new BadRequestException('This payout is already being processed');
 
-    const releaseJob = job;
-    const fallbackBreakdown = this.calculatePayout(Number(payment.amount), releaseJob?.distanceKm ? Number(releaseJob.distanceKm) : undefined);
-    const payoutAmount = Number(payment.transporterPayout) || fallbackBreakdown.transporterPayout;
-    const payoutKobo   = Math.round(payoutAmount * 100);
     const transferRef = `trac_payout_${jobId.replace(/-/g, '').slice(0, 18)}_${Date.now()}`;
+    const releaseRecord = this.paymentRepo.create({
+      reference: transferRef,
+      amount: payoutAmount,
+      status: PaymentStatus.PENDING,
+      type: PaymentType.RELEASE,
+      jobId,
+      customerId: payment.customerId,
+      tracCommission: payment.tracCommission,
+      transporterPayout: payoutAmount,
+      customerCashback: payment.customerCashback,
+    });
 
     try {
-      await axios.post(
+      await this.paymentRepo.save(releaseRecord);
+      const transferResponse = await axios.post(
         `${this.paystackUrl}/transfer`,
         {
           source: 'balance',
@@ -450,23 +484,26 @@ export class PaymentsService {
         { headers: this.headers },
       );
 
+      if (transferResponse.data?.status !== true || transferResponse.data?.data?.status === 'otp') {
+        throw new Error(
+          transferResponse.data?.data?.status === 'otp'
+            ? 'Paystack transfer confirmation OTP is still enabled'
+            : transferResponse.data?.message || 'Paystack rejected the transfer',
+        );
+      }
+
       this.logger.log(`💸 Withdrawal initiated: ₦${payoutAmount} → ${recipientCode}`);
 
-      const releaseRecord = this.paymentRepo.create({
-        reference: transferRef,
-        amount: payoutAmount,
-        status: PaymentStatus.PENDING,
-        type: PaymentType.RELEASE,
-        jobId,
-        customerId: payment.customerId,
-        tracCommission: payment.tracCommission,
-        transporterPayout: payoutAmount,
-        customerCashback: payment.customerCashback,
-      });
-      await this.paymentRepo.save(releaseRecord);
+      await this.paymentRepo.update(releaseRecord.id, { paystackMeta: transferResponse.data?.data });
 
       return { message: `₦${payoutAmount.toLocaleString('en-NG')} withdrawal initiated. Arrives in your bank shortly.` };
     } catch (error) {
+      if (releaseRecord.id) {
+        await this.paymentRepo.update(releaseRecord.id, {
+          status: PaymentStatus.FAILED,
+          paystackMeta: (error as any)?.response?.data || { message: (error as any)?.message },
+        });
+      }
       await this.paymentRepo.update(
         { id: payment.id, status: PaymentStatus.HELD },
         { status: PaymentStatus.RELEASED },

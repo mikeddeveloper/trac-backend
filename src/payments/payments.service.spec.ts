@@ -9,6 +9,7 @@ describe('PaymentsService launch protections', () => {
   const job = {
     id: 'job-1',
     customerId: 'customer-1',
+    transporterId: 'transporter-1',
     acceptedAmount: 125000,
     distanceKm: 12,
   };
@@ -16,9 +17,10 @@ describe('PaymentsService launch protections', () => {
     findOne: jest.fn(),
     create: jest.fn((value) => value),
     save: jest.fn(async (value) => value),
+    update: jest.fn().mockResolvedValue({ affected: 1 }),
   };
   const jobRepo = { findOne: jest.fn() };
-  const userRepo = {};
+  const userRepo = { findOne: jest.fn() };
   const configService = {
     get: jest.fn((key: string) => ({
       PAYSTACK_SECRET_KEY: 'test-secret',
@@ -62,5 +64,38 @@ describe('PaymentsService launch protections', () => {
     await expect(service.initializePayment('attacker@example.com', job.id, 'customer-2'))
       .rejects.toBeInstanceOf(UnauthorizedException);
     expect(mockedAxios.post).not.toHaveBeenCalled();
+  });
+
+  it('checks the Paystack balance and records a payout before initiating transfer', async () => {
+    const escrowPayment = {
+      id: 'payment-1',
+      jobId: job.id,
+      customerId: job.customerId,
+      amount: 125000,
+      transporterPayout: 112500,
+      tracCommission: 12500,
+      status: 'released',
+      type: 'escrow',
+    };
+    paymentRepo.findOne
+      .mockResolvedValueOnce(escrowPayment)
+      .mockResolvedValueOnce(null);
+    userRepo.findOne.mockResolvedValue({ id: job.transporterId, recipientCode: 'RCP_test' });
+    mockedAxios.get.mockResolvedValue({ data: { data: [{ currency: 'NGN', balance: 20_000_000 }] } });
+    mockedAxios.post.mockResolvedValue({ data: { status: true, data: { status: 'pending' } } });
+
+    await service.withdrawEarnings(job.id, job.transporterId);
+
+    expect(mockedAxios.get).toHaveBeenCalledWith(
+      expect.stringContaining('/balance'),
+      expect.any(Object),
+    );
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect.stringContaining('/transfer'),
+      expect.objectContaining({ source: 'balance', amount: 11_250_000, recipient: 'RCP_test' }),
+      expect.any(Object),
+    );
+    expect(paymentRepo.save.mock.invocationCallOrder[0])
+      .toBeLessThan(mockedAxios.post.mock.invocationCallOrder[0]);
   });
 });
