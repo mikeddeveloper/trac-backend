@@ -35,6 +35,7 @@ export class UsersController {
       companyName: user.companyName,
       vehicleType: user.vehicleType,
       licenseNumber: user.licenseNumber,
+      licenseStatus: user.licenseStatus,
       vehiclePlate: user.vehiclePlate,
       vehicleYear: user.vehicleYear,
       rcNumber: user.rcNumber,
@@ -119,7 +120,7 @@ export class UsersController {
       accountNumber: body.accountNumber,
       accountName: body.accountName,
     } as any);
-    return { message: 'Bank account saved successfully' };
+    return { message: 'Bank account saved successfully', bankName: body.bankName, accountNumber: body.accountNumber, accountName: body.accountName };
   }
 
   // DELETE /api/users/me
@@ -163,5 +164,20 @@ export class UsersController {
       delete (safeUser as any).passwordResetToken;
       return safeUser;
     });
+  }
+
+  @Get('preferences')
+  @UseGuards(AuthGuard('jwt'))
+  getPreferences(@Request() req: any) {
+    return this.usersService.getPreferences(req.user.id);
+  }
+
+  @Patch('preferences')
+  @UseGuards(AuthGuard('jwt'))
+  savePreferences(
+    @Request() req: any,
+    @Body() body: { notifications?: Record<string, boolean>; privacy?: Record<string, boolean> },
+  ) {
+    return this.usersService.savePreferences(req.user.id, body);
   }
 }

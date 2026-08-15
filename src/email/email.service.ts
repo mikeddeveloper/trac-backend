@@ -128,7 +128,7 @@ export class EmailService {
   <div style="background:white;border-radius:12px;padding:20px;margin-bottom:24px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
     <p style="color:#1E3A5F;font-weight:700;margin:0 0 8px;">Need help?</p>
     <p style="color:#64748B;font-size:0.85rem;margin:0 0 8px;">Our support team is available Monday to Friday, 8am - 6pm.</p>
-    <a href="mailto:admin@trac.com.ng" style="color:#1E3A5F;font-weight:600;font-size:0.85rem;text-decoration:none;">admin@trac.com.ng</a>
+    <a href="mailto:info@trac.com.ng" style="color:#1E3A5F;font-weight:600;font-size:0.85rem;text-decoration:none;">info@trac.com.ng</a>
   </div>
 
   <div style="text-align:center;padding:20px 0;">
@@ -209,7 +209,7 @@ export class EmailService {
     </div>
   </div>
   <div style="text-align:center;padding:20px 0;">
-    <p style="color:#94A3B8;font-size:0.75rem;margin:0;">© 2026 Trac Logistics · admin@trac.com.ng</p>
+    <p style="color:#94A3B8;font-size:0.75rem;margin:0;">© 2026 Trac Logistics · info@trac.com.ng</p>
     <p style="color:#CBD5E1;font-size:0.7rem;margin:4px 0 0;">Made with ❤️ in Nigeria 🇳🇬</p>
   </div>
 </div>
@@ -257,7 +257,7 @@ export class EmailService {
     <p style="color:#94A3B8;font-size:0.78rem;margin:0;">This code expires in 10 minutes. If you didn't request this, ignore this email.</p>
   </div>
   <div style="text-align:center;padding:20px 0;">
-    <p style="color:#94A3B8;font-size:0.75rem;margin:0;">© 2026 Trac Logistics · admin@trac.com.ng</p>
+    <p style="color:#94A3B8;font-size:0.75rem;margin:0;">© 2026 Trac Logistics · info@trac.com.ng</p>
   </div>
 </div>
 </body>
@@ -309,7 +309,7 @@ export class EmailService {
     <p style="color:#94A3B8;font-size:0.78rem;margin:0;">If you didn't request this, you can safely ignore this email.</p>
   </div>
   <div style="text-align:center;padding:20px 0;">
-    <p style="color:#94A3B8;font-size:0.75rem;margin:0;">© 2026 Trac Logistics · admin@trac.com.ng</p>
+    <p style="color:#94A3B8;font-size:0.75rem;margin:0;">© 2026 Trac Logistics · info@trac.com.ng</p>
   </div>
 </div>
 </body>
@@ -485,7 +485,7 @@ export class EmailService {
     </div>
   </div>
   <div style="text-align:center;padding:20px 0;">
-    <p style="color:#94A3B8;font-size:0.75rem;margin:0;">© 2026 Trac Logistics · admin@trac.com.ng</p>
+    <p style="color:#94A3B8;font-size:0.75rem;margin:0;">© 2026 Trac Logistics · info@trac.com.ng</p>
     <p style="color:#CBD5E1;font-size:0.7rem;margin:4px 0 0;">Made with ❤️ in Nigeria 🇳🇬</p>
   </div>
 </div>

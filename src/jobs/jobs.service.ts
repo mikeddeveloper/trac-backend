@@ -6,6 +6,7 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  ServiceUnavailableException,
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -58,6 +59,17 @@ export class JobsService {
   // ─── Create Job ──────────────────────────────────────────────────────────
 
   async createJob(customerId: string, dto: Partial<Job>): Promise<Job> {
+    try {
+      const rows = await this.jobRepo.query(
+        "SELECT value FROM platform_settings WHERE key = 'maintenanceMode' LIMIT 1",
+      );
+      if (rows[0]?.value === true || rows[0]?.value === 'true') {
+        throw new ServiceUnavailableException('New bookings are temporarily paused for maintenance');
+      }
+    } catch (error) {
+      if (error instanceof ServiceUnavailableException) throw error;
+      // The settings table is created when admin settings are first opened.
+    }
     const job = this.jobRepo.create({ ...dto, customerId, status: JobStatus.BIDDING });
     const saved = await this.jobRepo.save(job);
 

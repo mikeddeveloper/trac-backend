@@ -20,7 +20,7 @@ export class PushService {
     // Set VAPID keys
     const publicKey  = this.config.get<string>('VAPID_PUBLIC_KEY');
     const privateKey = this.config.get<string>('VAPID_PRIVATE_KEY');
-    const email      = this.config.get<string>('VAPID_EMAIL') || 'mailto:admin@tracmarketplace.com';
+    const email      = this.config.get<string>('VAPID_EMAIL') || 'mailto:info@trac.com.ng';
 
     if (publicKey && privateKey) {
       webpush.setVapidDetails(email, publicKey, privateKey);

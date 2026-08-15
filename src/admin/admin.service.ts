@@ -932,21 +932,51 @@ export class AdminService {
   // ─── Settings ─────────────────────────────────────────────────────────────────
 
   async getSettings() {
-    return {
+    const defaults = {
       commissionRate: 10,
       vatRate: 7.5,
       kycCutoffDate: '2026-05-11',
       maintenanceMode: false,
       platformName: 'Trac Marketplace',
-      supportEmail: 'admin@trac.com.ng',
+      supportEmail: 'info@trac.com.ng',
       minBidAmount: 1000,
       maxBidAmount: 10000000,
     };
+    await this.userRepo.query(`
+      CREATE TABLE IF NOT EXISTS platform_settings (
+        key varchar(80) PRIMARY KEY,
+        value jsonb NOT NULL,
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+    const rows: { key: string; value: unknown }[] = await this.userRepo.query(
+      'SELECT key, value FROM platform_settings',
+    );
+    for (const row of rows) {
+      if (row.key in defaults) (defaults as Record<string, unknown>)[row.key] = row.value;
+    }
+    return defaults;
   }
 
   async updateSettings(settings: any) {
-    this.logger.log(`Admin updated settings: ${JSON.stringify(settings)}`);
-    return { message: 'Settings updated successfully', settings };
+    const allowed = new Set([
+      'commissionRate', 'vatRate', 'kycCutoffDate', 'maintenanceMode',
+      'platformName', 'supportEmail', 'minBidAmount', 'maxBidAmount',
+    ]);
+    const entries = Object.entries(settings).filter(([key]) => allowed.has(key));
+    if (!entries.length) return { message: 'No valid settings supplied', settings: {} };
+    await this.getSettings();
+    for (const [key, value] of entries) {
+      await this.userRepo.query(
+        `INSERT INTO platform_settings (key, value, updated_at)
+         VALUES ($1, $2::jsonb, now())
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+        [key, JSON.stringify(value)],
+      );
+    }
+    const saved = Object.fromEntries(entries);
+    this.logger.log(`Admin updated settings: ${JSON.stringify(saved)}`);
+    return { message: 'Settings updated successfully', settings: saved };
   }
 
   // ─── Disputed jobs ────────────────────────────────────────────────────────────
