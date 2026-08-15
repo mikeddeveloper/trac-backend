@@ -317,6 +317,8 @@ export class AdminService {
         disclaimerAccepted: (j as any).disclaimerAccepted,
         deliveryOtp: (j as any).deliveryOtp,
         otpVerified: (j as any).otpVerified,
+        proofOfDeliveryUrl: j.proofOfDeliveryUrl,
+        proofUploadedAt: j.proofUploadedAt,
         recipientName: (j as any).recipientName,
         recipientPhone: (j as any).recipientPhone,
         createdAt: j.createdAt,
