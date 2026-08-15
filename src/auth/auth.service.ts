@@ -43,22 +43,12 @@ export class AuthService {
       emailOtpExpiry: otpExpiry,
     } as any);
 
-    this.emailService.sendOtpEmail({
-      fullName: user.fullName,
-      email: user.email,
-    }, otp).catch((err) => {
-      this.logger.error('OTP email failed:', err?.message);
-    });
-
-    this.emailService.sendWelcomeEmail({
-      fullName: user.fullName,
-      email: user.email,
-      role: user.role,
-    }).then((result) => {
-      this.logger.log('Welcome email result: ' + JSON.stringify(result));
-    }).catch((error) => {
-      this.logger.error('Welcome email failed to send: ' + (error?.message || error));
-    });
+    const [otpEmail, welcomeEmail] = await Promise.all([
+      this.emailService.sendOtpEmail({ fullName: user.fullName, email: user.email }, otp),
+      this.emailService.sendWelcomeEmail({ fullName: user.fullName, email: user.email, role: user.role }),
+    ]);
+    if (!otpEmail?.success) this.logger.error(`OTP email was not delivered to ${user.email}`);
+    if (!welcomeEmail?.success) this.logger.error(`Welcome email was not delivered to ${user.email}`);
 
     // Generate tokens
     const tokens = await this.generateTokens(user.id, user.email, user.role);
@@ -73,6 +63,10 @@ export class AuthService {
         isVerified: user.isVerified,
       },
       ...tokens,
+      emailDelivery: {
+        verification: !!otpEmail?.success,
+        welcome: !!welcomeEmail?.success,
+      },
     };
   }
 

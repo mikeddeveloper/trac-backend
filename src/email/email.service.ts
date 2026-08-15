@@ -8,6 +8,7 @@ export class EmailService {
   private readonly logger = new Logger(EmailService.name);
   private resend: Resend;
   private transporter: any;
+  private readonly fromAddress: string;
 
   constructor(private configService: ConfigService) {
     const apiKey = this.configService.get<string>('RESEND_API_KEY');
@@ -15,6 +16,7 @@ export class EmailService {
       this.logger.error('RESEND_API_KEY is not set in environment variables');
     }
     this.resend = new Resend(apiKey || 're_placeholder');
+    this.fromAddress = this.configService.get<string>('EMAIL_FROM') || 'Trac Logistics <info@trac.com.ng>';
     this.logger.log(`Email service initialized. API key present: ${!!apiKey}`);
 
     this.transporter = nodemailer.createTransport({
@@ -36,6 +38,34 @@ export class EmailService {
     this.logger.log(`SMTP configured for: ${this.configService.get('SMTP_USER')}`);
   }
 
+  private async sendEmail(message: { from?: string; to: string | string[]; subject: string; html: string }) {
+    const resendKey = this.configService.get<string>('RESEND_API_KEY');
+    if (resendKey) {
+      try {
+        const result = await this.resend.emails.send({
+          ...message,
+          from: this.fromAddress,
+        });
+        if (!result.error) return result;
+        this.logger.error(`Resend rejected email to ${message.to}: ${JSON.stringify(result.error)}`);
+      } catch (error: any) {
+        this.logger.error(`Resend failed for ${message.to}: ${error?.message || error}`);
+      }
+    }
+
+    const smtpUser = this.configService.get<string>('SMTP_USER');
+    const smtpPass = this.configService.get<string>('SMTP_PASS');
+    if (smtpUser && smtpPass) {
+      const recipients = Array.isArray(message.to) ? message.to.join(',') : message.to;
+      const result = await this.sendViaSmtp(recipients, message.subject, message.html);
+      if (result.success) return { data: result, error: null };
+    }
+
+    const error = new Error('Email delivery failed: configure RESEND_API_KEY or SMTP_USER and SMTP_PASS');
+    this.logger.error(`${error.message}; recipient=${message.to}`);
+    throw error;
+  }
+
   private async sendViaSmtp(to: string, subject: string, html: string) {
     try {
       const info = await this.transporter.sendMail({
@@ -50,6 +80,30 @@ export class EmailService {
       this.logger.error(`SMTP email error for ${to}:`, error?.message);
       this.logger.error('SMTP error details:', JSON.stringify(error));
       return { success: false };
+    }
+  }
+
+  async sendActivityEmail(
+    user: { fullName: string; email: string },
+    subject: string,
+    heading: string,
+    message: string,
+    actionUrl?: string,
+    actionLabel = 'Open Trac Dashboard',
+  ) {
+    const escape = (value: string) => value.replace(/[&<>"']/g, char => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;',
+    })[char] as string);
+    const firstName = escape((user.fullName || 'there').split(' ')[0]);
+    const frontend = this.configService.get<string>('FRONTEND_URL') || 'https://traclogistics.com.ng';
+    const url = actionUrl || `${frontend}/dashboard/notifications`;
+    const html = `<div style="background:#F8FAFC;padding:32px 16px;font-family:Arial,sans-serif"><div style="max-width:600px;margin:auto;background:#fff;border-radius:16px;overflow:hidden"><div style="background:#1E3A5F;padding:28px;text-align:center"><h1 style="color:#6EC89A;margin:0">Trac Logistics</h1></div><div style="padding:32px"><h2 style="color:#1E3A5F">${escape(heading)}</h2><p style="color:#64748B;line-height:1.7">Hi ${firstName},</p><p style="color:#64748B;line-height:1.7">${escape(message)}</p><a href="${escape(url)}" style="display:inline-block;margin-top:16px;background:#6EC89A;color:#1E3A5F;padding:12px 22px;border-radius:10px;text-decoration:none;font-weight:700">${escape(actionLabel)}</a></div><div style="padding:18px;text-align:center;color:#94A3B8;font-size:12px">Trac Marketplace · info@trac.com.ng</div></div></div>`;
+    try {
+      const { error, data } = await this.sendEmail({ to: user.email, subject, html });
+      return error ? { success: false, error } : { success: true, data };
+    } catch (error: any) {
+      this.logger.error(`Activity email failed for ${user.email}: ${error?.message || error}`);
+      return { success: false, error: error?.message };
     }
   }
 
@@ -141,8 +195,8 @@ export class EmailService {
 </html>`;
 
     try {
-      const { data, error } = await this.resend.emails.send({
-        from: 'Trac Logistics <admin@traclogistics.com.ng>',
+      const { data, error } = await this.sendEmail({
+        from: this.fromAddress,
         to: user.email,
         subject: `Welcome to Trac Logistics, ${firstName}! 🎉`,
         html,
@@ -217,8 +271,8 @@ export class EmailService {
 </html>`;
 
     try {
-      const { data, error } = await this.resend.emails.send({
-        from: 'Trac Logistics <admin@traclogistics.com.ng>',
+      const { data, error } = await this.sendEmail({
+        from: this.fromAddress,
         to: user.email,
         subject: `Payment Confirmed - ₦${Number(payment.amount).toLocaleString()} | Trac Logistics`,
         html,
@@ -264,8 +318,8 @@ export class EmailService {
 </html>`;
 
     try {
-      const { error } = await this.resend.emails.send({
-        from: 'Trac Logistics <admin@traclogistics.com.ng>',
+      const { error } = await this.sendEmail({
+        from: this.fromAddress,
         to: user.email,
         subject: `Your Trac Logistics verification code: ${otp}`,
         html,
@@ -316,8 +370,8 @@ export class EmailService {
 </html>`;
 
     try {
-      const { error } = await this.resend.emails.send({
-        from: 'Trac Logistics <admin@traclogistics.com.ng>',
+      const { error } = await this.sendEmail({
+        from: this.fromAddress,
         to: user.email,
         subject: `Reset your Trac Logistics password`,
         html,
@@ -362,7 +416,7 @@ export class EmailService {
     <p style="color:#94A3B8;font-size:0.78rem;margin:0;">Welcome to the Trac family! Start earning today.</p>
   </div>
   <div style="text-align:center;padding:20px 0;">
-    <p style="color:#94A3B8;font-size:0.75rem;margin:0;">© 2026 Trac Logistics · admin@traclogistics.com.ng</p>
+    <p style="color:#94A3B8;font-size:0.75rem;margin:0;">© 2026 Trac Logistics · info@trac.com.ng</p>
     <p style="color:#CBD5E1;font-size:0.7rem;margin:4px 0 0;">Made with ❤️ in Nigeria 🇳🇬</p>
   </div>
 </div>
@@ -370,8 +424,8 @@ export class EmailService {
 </html>`;
 
     try {
-      const { error } = await this.resend.emails.send({
-        from: 'Trac Logistics <admin@traclogistics.com.ng>',
+      const { error } = await this.sendEmail({
+        from: this.fromAddress,
         to: user.email,
         subject: '🎉 Your License Has Been Verified | Trac Logistics',
         html,
@@ -413,18 +467,18 @@ export class EmailService {
        style="display:inline-block;background:#1E3A5F;color:white;padding:14px 32px;border-radius:12px;font-weight:800;font-size:1rem;text-decoration:none;margin-bottom:16px;">
       Resubmit License →
     </a>
-    <p style="color:#94A3B8;font-size:0.78rem;margin:0;">If you have questions contact us at admin@traclogistics.com.ng</p>
+    <p style="color:#94A3B8;font-size:0.78rem;margin:0;">If you have questions contact us at info@trac.com.ng</p>
   </div>
   <div style="text-align:center;padding:20px 0;">
-    <p style="color:#94A3B8;font-size:0.75rem;margin:0;">© 2026 Trac Logistics · admin@traclogistics.com.ng</p>
+    <p style="color:#94A3B8;font-size:0.75rem;margin:0;">© 2026 Trac Logistics · info@trac.com.ng</p>
   </div>
 </div>
 </body>
 </html>`;
 
     try {
-      const { error } = await this.resend.emails.send({
-        from: 'Trac Logistics <admin@traclogistics.com.ng>',
+      const { error } = await this.sendEmail({
+        from: this.fromAddress,
         to: user.email,
         subject: '📋 License Verification Update | Trac Logistics',
         html,
@@ -493,8 +547,8 @@ export class EmailService {
 </html>`;
 
     try {
-      const { data, error } = await this.resend.emails.send({
-        from: 'Trac Logistics <admin@traclogistics.com.ng>',
+      const { data, error } = await this.sendEmail({
+        from: this.fromAddress,
         to: user.email,
         subject: `Delivery Confirmed! | Trac Logistics`,
         html,
@@ -549,8 +603,8 @@ export class EmailService {
 
     try {
       const adminEmail = this.configService.get<string>('ADMIN_EMAIL') || 'mikeddev6@gmail.com';
-      const { data, error } = await this.resend.emails.send({
-        from: 'Trac Logistics <admin@traclogistics.com.ng>',
+      const { data, error } = await this.sendEmail({
+        from: this.fromAddress,
         to: adminEmail,
         subject: `⚠️ Dispute Raised — Job ${dispute.jobId.slice(0, 8)}`,
         html,

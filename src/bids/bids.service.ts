@@ -13,6 +13,7 @@ import { JobsService } from '../jobs/jobs.service';
 import { JobStatus } from '../jobs/entities/job.entity';
 import { PushService } from '../push/push.service';
 import { EventsGateway } from '../events/events.gateway';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class BidsService {
@@ -24,6 +25,7 @@ export class BidsService {
     private jobsService: JobsService,
     private pushService: PushService,
     private eventsGateway: EventsGateway,
+    private emailService: EmailService,
   ) {}
 
   async placeBid(transporterId: string, jobId: string, amount: number, note?: string): Promise<Bid> {
@@ -69,6 +71,15 @@ export class BidsService {
         job.customerId,
         this.pushService.templates.newBid(route, Number(amount).toLocaleString('en-NG')),
       ).catch(() => {});
+      const customer = await this.userRepo.findOne({ where: { id: job.customerId } });
+      if (customer) await this.emailService.sendActivityEmail(
+        customer,
+        'New quote received for your Trac delivery',
+        'You received a new quote',
+        `A transporter quoted ₦${Number(amount).toLocaleString('en-NG')} for ${route}.`,
+        undefined,
+        'Review Quote',
+      );
     }
 
     return saved;
@@ -128,6 +139,15 @@ export class BidsService {
       bid.transporterId,
       this.pushService.templates.bidAccepted(route),
     ).catch(() => {});
+    const transporter = await this.userRepo.findOne({ where: { id: bid.transporterId } });
+    if (transporter) await this.emailService.sendActivityEmail(
+      transporter,
+      'Your Trac bid was accepted',
+      'Your bid was accepted',
+      `Your bid for ${route} has been accepted. The customer will complete payment before pickup.`,
+      undefined,
+      'View Delivery',
+    );
 
     return bid;
   }

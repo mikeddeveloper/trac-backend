@@ -309,6 +309,15 @@ export class PaymentsService {
         await this.pushService.sendToUser(job.transporterId,
           this.pushService.templates.payoutReleased(amount),
         ).catch(() => {});
+        const transporter = await this.userRepo.findOne({ where: { id: job.transporterId } });
+        if (transporter && typeof this.emailService.sendActivityEmail === 'function') await this.emailService.sendActivityEmail(
+          transporter,
+          'Your Trac payment has been disbursed',
+          'Payment disbursed',
+          `NGN ${amount} has been released to your registered bank account.`,
+          undefined,
+          'View Earnings',
+        );
       }
     }
   }
@@ -495,6 +504,14 @@ export class PaymentsService {
       this.logger.log(`💸 Withdrawal initiated: ₦${payoutAmount} → ${recipientCode}`);
 
       await this.paymentRepo.update(releaseRecord.id, { paystackMeta: transferResponse.data?.data });
+      if (transporter && typeof this.emailService.sendActivityEmail === 'function') await this.emailService.sendActivityEmail(
+        transporter,
+        'Your Trac withdrawal is being processed',
+        'Withdrawal initiated',
+        `Your withdrawal of NGN ${payoutAmount.toLocaleString('en-NG')} has been submitted to your bank. We will notify you when it is disbursed.`,
+        undefined,
+        'View Earnings',
+      );
 
       return { message: `₦${payoutAmount.toLocaleString('en-NG')} withdrawal initiated. Arrives in your bank shortly.` };
     } catch (error) {

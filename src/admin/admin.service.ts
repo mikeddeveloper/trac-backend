@@ -11,6 +11,7 @@ import { User } from '../users/entities/user.entity';
 import { Rating } from '../ratings/entities/rating.entity';
 import { PushService } from '../push/push.service';
 import { EventsGateway } from '../events/events.gateway';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class AdminService {
@@ -29,6 +30,7 @@ export class AdminService {
     private ratingRepo: Repository<Rating>,
     private pushService: PushService,
     private eventsGateway: EventsGateway,
+    private emailService: EmailService,
   ) {}
 
   // ─── Platform overview ───────────────────────────────────────────────────────
@@ -236,7 +238,24 @@ export class AdminService {
   // ─── Suspend / unsuspend user ────────────────────────────────────────────────
 
   async suspendUser(userId: string) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
     await this.userRepo.update(userId, { isSuspended: true });
+    if (user) {
+      await this.pushService.sendToUser(userId, {
+        title: 'Account suspended',
+        body: 'Your Trac account has been suspended. Complete verification or contact support for help.',
+        url: '/dashboard/verification',
+        tag: 'account-suspended',
+      }).catch(() => {});
+      await this.emailService.sendActivityEmail(
+        user,
+        'Important: your Trac account has been suspended',
+        'Account suspended',
+        'Your account has been suspended. Please complete your verification or contact info@trac.com.ng if you need assistance.',
+        undefined,
+        'Complete Verification',
+      );
+    }
     return { message: 'User suspended', user: { status: 'suspended', isSuspended: true } };
   }
 
