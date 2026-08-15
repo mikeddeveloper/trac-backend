@@ -7,10 +7,12 @@ import { UserRole } from '../users/entities/user.entity';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
 import { EmailService } from '../email/email.service';
+import { createHash, randomBytes } from 'crypto';
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+  private readonly googleExchangeCodes = new Map<string, { userId: string; expiresAt: number }>();
 
   constructor(
     private usersService: UsersService,
@@ -146,6 +148,46 @@ export class AuthService {
     return this.generateTokens(user.id, user.email, user.role);
   }
 
+  createGoogleExchangeCode(userId: string): string {
+    const code = randomBytes(32).toString('base64url');
+    const codeHash = createHash('sha256').update(code).digest('hex');
+    const now = Date.now();
+    for (const [hash, entry] of this.googleExchangeCodes) {
+      if (entry.expiresAt <= now) this.googleExchangeCodes.delete(hash);
+    }
+    this.googleExchangeCodes.set(codeHash, { userId, expiresAt: now + 60_000 });
+    return code;
+  }
+
+  async exchangeGoogleCode(code: string) {
+    if (!code || typeof code !== 'string') {
+      throw new UnauthorizedException('Google sign-in code is required');
+    }
+
+    const codeHash = createHash('sha256').update(code).digest('hex');
+    const entry = this.googleExchangeCodes.get(codeHash);
+    this.googleExchangeCodes.delete(codeHash);
+    if (!entry || entry.expiresAt <= Date.now()) {
+      throw new UnauthorizedException('Invalid or expired Google sign-in code');
+    }
+
+    const user = await this.usersService.findById(entry.userId);
+    if (user.isSuspended) throw new UnauthorizedException('Account is suspended');
+    const tokens = await this.generateTokens(user.id, user.email, user.role);
+    return {
+      user: {
+        id: user.id,
+        fullName: user.fullName,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        isVerified: user.isVerified,
+        avatarUrl: user.avatarUrl || null,
+      },
+      ...tokens,
+    };
+  }
+
   async googleLogin(googleUser: {
     googleId: string;
     email: string;
@@ -187,10 +229,6 @@ export class AuthService {
       },
       ...tokens,
     };
-  }
-
-  generateAccessToken(payload: Record<string, unknown>): string {
-    return this.jwtService.sign(payload);
   }
 
   async logout(userId: string) {

@@ -36,6 +36,13 @@ export class AuthController {
     return this.authService.refreshTokens(body.refreshToken);
   }
 
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @Post('google/exchange')
+  @HttpCode(HttpStatus.OK)
+  async exchangeGoogleCode(@Body() body: { code: string }) {
+    return this.authService.exchangeGoogleCode(body.code);
+  }
+
   @Post('change-password')
   @UseGuards(AuthGuard('jwt'))
   async changePassword(
@@ -63,32 +70,13 @@ export class AuthController {
   async googleCallback(@Request() req: any, @Res() res: any) {
     const user = req.user;
 
-    const payload = {
-      id: user.id,
-      sub: user.id,
-      email: user.email,
-      role: user.role,
-      fullName: user.fullName,
-    };
-
-    const accessToken = this.authService.generateAccessToken(payload);
+    const code = this.authService.createGoogleExchangeCode(user.id);
 
     const frontendUrl =
       this.configService.get<string>('FRONTEND_URL') ||
       'https://traclogistics.com.ng';
 
-    const userObj = {
-      id: user.id,
-      fullName: user.fullName,
-      email: user.email,
-      role: user.role,
-      isVerified: user.isVerified,
-      avatarUrl: user.avatarUrl || null,
-      phone: user.phone || null,
-    };
-
-    const userStr = encodeURIComponent(JSON.stringify(userObj));
-    res.redirect(`${frontendUrl}/auth/google/callback?token=${accessToken}&user=${userStr}`);
+    res.redirect(`${frontendUrl}/auth/google/callback?code=${encodeURIComponent(code)}`);
   }
 
   @Post('forgot-password')
