@@ -59,6 +59,13 @@ export class JobsService {
   // ─── Create Job ──────────────────────────────────────────────────────────
 
   async createJob(customerId: string, dto: Partial<Job>): Promise<Job> {
+    if (dto.disclaimerAccepted !== true || !dto.goodsCategory) {
+      throw new BadRequestException('You must complete the goods declaration and accept the prohibited-items policy');
+    }
+    const cargoWeight = Number(dto.cargoWeight);
+    if (!Number.isFinite(cargoWeight) || cargoWeight < 0.5 || cargoWeight > 50) {
+      throw new BadRequestException('Cargo weight must be between 0.5 kg and 50 kg');
+    }
     try {
       const rows = await this.jobRepo.query(
         "SELECT value FROM platform_settings WHERE key = 'maintenanceMode' LIMIT 1",
@@ -70,7 +77,14 @@ export class JobsService {
       if (error instanceof ServiceUnavailableException) throw error;
       // The settings table is created when admin settings are first opened.
     }
-    const job = this.jobRepo.create({ ...dto, customerId, status: JobStatus.BIDDING });
+    const job = this.jobRepo.create({
+      ...dto,
+      customerId,
+      status: JobStatus.BIDDING,
+      goodsDeclared: true,
+      disclaimerAccepted: true,
+      disclaimerAcceptedAt: new Date(),
+    });
     const saved = await this.jobRepo.save(job);
 
     // ── Broadcast new job to all connected transporters ──
