@@ -49,3 +49,32 @@ describe('AuthService Google exchange codes', () => {
       .rejects.toBeInstanceOf(UnauthorizedException);
   });
 });
+
+describe('AuthService password login', () => {
+  it('normalizes email addresses before looking up an account', async () => {
+    const usersService = {
+      findByEmailWithPassword: jest.fn().mockResolvedValue({
+        id: 'user-1', email: 'user@example.com', password: '$2b$04$invalid',
+        role: 'customer', isSuspended: false,
+      }),
+    };
+    const service = new AuthService(usersService as any, {} as any, {} as any, {} as any);
+
+    await expect(service.login({ email: ' User@Example.COM ', password: 'wrong' }))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(usersService.findByEmailWithPassword).toHaveBeenCalledWith('user@example.com');
+  });
+
+  it('returns a useful response for Google-only accounts', async () => {
+    const usersService = {
+      findByEmailWithPassword: jest.fn().mockResolvedValue({
+        id: 'user-1', email: 'user@example.com', password: null,
+        role: 'customer', isSuspended: false,
+      }),
+    };
+    const service = new AuthService(usersService as any, {} as any, {} as any, {} as any);
+
+    await expect(service.login({ email: 'user@example.com', password: 'anything' }))
+      .rejects.toThrow('This account uses Google sign-in');
+  });
+});

@@ -24,15 +24,14 @@ export class EmailService {
       port: 587,
       secure: false,
       family: 4,
+      requireTLS: true,
       auth: {
         user: this.configService.get('SMTP_USER'),
         pass: this.configService.get('SMTP_PASS'),
       },
-      tls: {
-        ciphers: 'SSLv3',
-        rejectUnauthorized: false,
-      },
-      connectionTimeout: 10000,
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 30000,
     });
 
     this.logger.log(`SMTP configured for: ${this.configService.get('SMTP_USER')}`);

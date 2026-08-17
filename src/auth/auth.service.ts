@@ -1,4 +1,4 @@
-import { Injectable, Logger, ConflictException, UnauthorizedException, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, ConflictException, UnauthorizedException, NotFoundException, BadRequestException, ServiceUnavailableException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
@@ -22,8 +22,9 @@ export class AuthService {
   ) {}
 
   async signup(dto: SignupDto) {
+    const email = dto.email.trim().toLowerCase();
     // Check if email already exists
-    const existing = await this.usersService.findByEmail(dto.email);
+    const existing = await this.usersService.findByEmail(email);
     if (existing) throw new ConflictException('Email already registered');
 
     // Hash password
@@ -32,6 +33,7 @@ export class AuthService {
     // Create user
     const user = await this.usersService.create({
       ...dto,
+      email,
       password: hashedPassword,
     });
 
@@ -43,15 +45,22 @@ export class AuthService {
       emailOtpExpiry: otpExpiry,
     } as any);
 
-    const [otpEmail, welcomeEmail] = await Promise.all([
-      this.emailService.sendOtpEmail({ fullName: user.fullName, email: user.email }, otp),
-      this.emailService.sendWelcomeEmail({ fullName: user.fullName, email: user.email, role: user.role }),
-    ]);
-    if (!otpEmail?.success) this.logger.error(`OTP email was not delivered to ${user.email}`);
-    if (!welcomeEmail?.success) this.logger.error(`Welcome email was not delivered to ${user.email}`);
-
     // Generate tokens
     const tokens = await this.generateTokens(user.id, user.email, user.role);
+
+    // Do not make account creation depend on external mail-provider latency.
+    void Promise.allSettled([
+      this.emailService.sendOtpEmail({ fullName: user.fullName, email: user.email }, otp),
+      this.emailService.sendWelcomeEmail({ fullName: user.fullName, email: user.email, role: user.role }),
+    ]).then(results => {
+      const labels = ['OTP', 'Welcome'];
+      results.forEach((result, index) => {
+        if (result.status === 'rejected' || !result.value?.success) {
+          const reason = result.status === 'rejected' ? result.reason?.message : undefined;
+          this.logger.error(`${labels[index]} email was not delivered to ${user.email}: ${reason || 'unknown provider error'}`);
+        }
+      });
+    });
 
     return {
       user: {
@@ -63,17 +72,20 @@ export class AuthService {
         isVerified: user.isVerified,
       },
       ...tokens,
-      emailDelivery: {
-        verification: !!otpEmail?.success,
-        welcome: !!welcomeEmail?.success,
-      },
+      emailDelivery: { status: 'queued' },
     };
   }
 
   async login(dto: LoginDto) {
+    const email = dto.email.trim().toLowerCase();
     // Find user with password
-    const user = await this.usersService.findByEmailWithPassword(dto.email);
+    const user = await this.usersService.findByEmailWithPassword(email);
     if (!user) throw new UnauthorizedException('No account found with this email address');
+
+    if (user.isSuspended) throw new UnauthorizedException('Account is suspended');
+    if (!user.password) {
+      throw new UnauthorizedException('This account uses Google sign-in. Continue with Google instead.');
+    }
 
     // Check password
     const passwordMatch = await bcrypt.compare(dto.password, user.password);
@@ -271,16 +283,20 @@ export class AuthService {
       emailOtpExpiry: otpExpiry,
     } as any);
 
-    await this.emailService.sendOtpEmail({
+    const delivery = await this.emailService.sendOtpEmail({
       fullName: user.fullName,
       email: user.email,
     }, otp);
+
+    if (!delivery?.success) {
+      throw new ServiceUnavailableException('We could not send the verification email. Please try again shortly.');
+    }
 
     return { message: 'Verification code resent' };
   }
 
   async forgotPassword(email: string) {
-    const user = await this.usersService.findByEmail(email);
+    const user = await this.usersService.findByEmail(email.trim().toLowerCase());
     if (!user) {
       return { message: 'If that email is registered, a reset link has been sent.' };
     }

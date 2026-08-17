@@ -22,7 +22,10 @@ export class UsersService {
   }
 
   async findByEmail(email: string): Promise<User | null> {
-    return this.usersRepo.findOne({ where: { email } });
+    return this.usersRepo
+      .createQueryBuilder('user')
+      .where('LOWER(user.email) = LOWER(:email)', { email: email.trim() })
+      .getOne();
   }
 
   async findByGoogleId(googleId: string): Promise<User | null> {
@@ -33,7 +36,7 @@ export class UsersService {
     return this.usersRepo
       .createQueryBuilder('user')
       .addSelect('user.password')
-      .where('user.email = :email', { email })
+      .where('LOWER(user.email) = LOWER(:email)', { email: email.trim() })
       .getOne();
   }
 
