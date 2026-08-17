@@ -1,4 +1,5 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { Request } from 'express';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
@@ -11,19 +12,32 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
       secretOrKey: configService.get<string>('JWT_SECRET') as string,
+      passReqToCallback: true,
     });
   }
 
-  async validate(payload: any) {
+  async validate(req: Request, payload: any) {
     const userId = payload.id || payload.sub;
     const user = await this.usersService.findById(userId);
     if (user.isSuspended) throw new UnauthorizedException('Account suspended');
+    const path = (req.originalUrl || req.path).split('?')[0];
+    const verificationPaths = [
+      '/api/auth/me',
+      '/api/auth/verify-email',
+      '/api/auth/resend-otp',
+      '/api/auth/logout',
+    ];
+    const canUseBeforeVerification = verificationPaths.some(allowed => path.endsWith(allowed));
+    if (!user.emailVerified && user.role !== 'admin' && !canUseBeforeVerification) {
+      throw new ForbiddenException('Email verification is required');
+    }
     return {
       id: user.id,
       sub: user.id,
       email: user.email,
       role: user.role,
       fullName: user.fullName,
+      emailVerified: user.emailVerified,
     };
   }
 }

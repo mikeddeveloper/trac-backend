@@ -1,4 +1,12 @@
-import { Injectable, Logger, ConflictException, UnauthorizedException, NotFoundException, BadRequestException, ServiceUnavailableException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  ConflictException,
+  UnauthorizedException,
+  NotFoundException,
+  BadRequestException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
@@ -12,7 +20,10 @@ import { createHash, randomBytes } from 'crypto';
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
-  private readonly googleExchangeCodes = new Map<string, { userId: string; expiresAt: number }>();
+  private readonly googleExchangeCodes = new Map<
+    string,
+    { userId: string; expiresAt: number }
+  >();
 
   constructor(
     private usersService: UsersService,
@@ -50,14 +61,24 @@ export class AuthService {
 
     // Do not make account creation depend on external mail-provider latency.
     void Promise.allSettled([
-      this.emailService.sendOtpEmail({ fullName: user.fullName, email: user.email }, otp),
-      this.emailService.sendWelcomeEmail({ fullName: user.fullName, email: user.email, role: user.role }),
-    ]).then(results => {
+      this.emailService.sendOtpEmail(
+        { fullName: user.fullName, email: user.email },
+        otp,
+      ),
+      this.emailService.sendWelcomeEmail({
+        fullName: user.fullName,
+        email: user.email,
+        role: user.role,
+      }),
+    ]).then((results) => {
       const labels = ['OTP', 'Welcome'];
       results.forEach((result, index) => {
         if (result.status === 'rejected' || !result.value?.success) {
-          const reason = result.status === 'rejected' ? result.reason?.message : undefined;
-          this.logger.error(`${labels[index]} email was not delivered to ${user.email}: ${reason || 'unknown provider error'}`);
+          const reason =
+            result.status === 'rejected' ? result.reason?.message : undefined;
+          this.logger.error(
+            `${labels[index]} email was not delivered to ${user.email}: ${reason || 'unknown provider error'}`,
+          );
         }
       });
     });
@@ -70,6 +91,7 @@ export class AuthService {
         phone: user.phone,
         role: user.role,
         isVerified: user.isVerified,
+        emailVerified: user.emailVerified,
       },
       ...tokens,
       emailDelivery: { status: 'queued' },
@@ -80,16 +102,23 @@ export class AuthService {
     const email = dto.email.trim().toLowerCase();
     // Find user with password
     const user = await this.usersService.findByEmailWithPassword(email);
-    if (!user) throw new UnauthorizedException('No account found with this email address');
+    if (!user)
+      throw new UnauthorizedException(
+        'No account found with this email address',
+      );
 
-    if (user.isSuspended) throw new UnauthorizedException('Account is suspended');
+    if (user.isSuspended)
+      throw new UnauthorizedException('Account is suspended');
     if (!user.password) {
-      throw new UnauthorizedException('This account uses Google sign-in. Continue with Google instead.');
+      throw new UnauthorizedException(
+        'This account uses Google sign-in. Continue with Google instead.',
+      );
     }
 
     // Check password
     const passwordMatch = await bcrypt.compare(dto.password, user.password);
-    if (!passwordMatch) throw new UnauthorizedException('Incorrect password. Please try again');
+    if (!passwordMatch)
+      throw new UnauthorizedException('Incorrect password. Please try again');
 
     // Generate tokens
     const tokens = await this.generateTokens(user.id, user.email, user.role);
@@ -102,6 +131,7 @@ export class AuthService {
         phone: user.phone,
         role: user.role,
         isVerified: user.isVerified,
+        emailVerified: user.emailVerified,
       },
       ...tokens,
     };
@@ -129,7 +159,8 @@ export class AuthService {
   }
 
   async refreshTokens(refreshToken: string) {
-    if (!refreshToken) throw new UnauthorizedException('Refresh token is required');
+    if (!refreshToken)
+      throw new UnauthorizedException('Refresh token is required');
 
     let payload: { sub: string; email: string; role: string };
     try {
@@ -178,7 +209,8 @@ export class AuthService {
     }
 
     const user = await this.usersService.findById(entry.userId);
-    if (user.isSuspended) throw new UnauthorizedException('Account is suspended');
+    if (user.isSuspended)
+      throw new UnauthorizedException('Account is suspended');
     const tokens = await this.generateTokens(user.id, user.email, user.role);
     return {
       user: {
@@ -188,6 +220,7 @@ export class AuthService {
         phone: user.phone,
         role: user.role,
         isVerified: user.isVerified,
+        emailVerified: user.emailVerified,
         avatarUrl: user.avatarUrl || null,
       },
       ...tokens,
@@ -208,6 +241,7 @@ export class AuthService {
         await this.usersService.updateProfile(existing.id, {
           googleId: googleUser.googleId,
           avatarUrl: googleUser.avatarUrl ?? existing.avatarUrl,
+          emailVerified: true,
         });
         user = await this.usersService.findById(existing.id);
       } else {
@@ -218,6 +252,7 @@ export class AuthService {
           avatarUrl: googleUser.avatarUrl ?? undefined,
           role: UserRole.CUSTOMER,
           isVerified: true,
+          emailVerified: true,
         });
       }
     }
@@ -232,6 +267,7 @@ export class AuthService {
         phone: user.phone,
         role: user.role,
         isVerified: user.isVerified,
+        emailVerified: user.emailVerified,
       },
       ...tokens,
     };
@@ -255,7 +291,9 @@ export class AuthService {
     }
 
     if (new Date() > new Date((user as any).emailOtpExpiry)) {
-      throw new BadRequestException('Verification code has expired. Please request a new one.');
+      throw new BadRequestException(
+        'Verification code has expired. Please request a new one.',
+      );
     }
 
     await this.usersService.updateProfile(userId, {
@@ -283,22 +321,31 @@ export class AuthService {
       emailOtpExpiry: otpExpiry,
     } as any);
 
-    const delivery = await this.emailService.sendOtpEmail({
-      fullName: user.fullName,
-      email: user.email,
-    }, otp);
+    const delivery = await this.emailService.sendOtpEmail(
+      {
+        fullName: user.fullName,
+        email: user.email,
+      },
+      otp,
+    );
 
     if (!delivery?.success) {
-      throw new ServiceUnavailableException('We could not send the verification email. Please try again shortly.');
+      throw new ServiceUnavailableException(
+        'We could not send the verification email. Please try again shortly.',
+      );
     }
 
     return { message: 'Verification code resent' };
   }
 
   async forgotPassword(email: string) {
-    const user = await this.usersService.findByEmail(email.trim().toLowerCase());
+    const user = await this.usersService.findByEmail(
+      email.trim().toLowerCase(),
+    );
     if (!user) {
-      return { message: 'If that email is registered, a reset link has been sent.' };
+      return {
+        message: 'If that email is registered, a reset link has been sent.',
+      };
     }
 
     const crypto = require('crypto');
@@ -310,13 +357,22 @@ export class AuthService {
       passwordResetExpiry: expiry,
     } as any);
 
-    const frontendUrl = this.configService.get('FRONTEND_URL') || 'https://traclogistics.com.ng';
+    const frontendUrl =
+      this.configService.get('FRONTEND_URL') || 'https://traclogistics.com.ng';
     const resetUrl = `${frontendUrl}/reset-password?token=${token}`;
 
-    this.emailService.sendPasswordResetEmail({ fullName: user.fullName, email: user.email }, resetUrl)
-      .catch(err => this.logger.error('Password reset email failed:', err?.message));
+    this.emailService
+      .sendPasswordResetEmail(
+        { fullName: user.fullName, email: user.email },
+        resetUrl,
+      )
+      .catch((err) =>
+        this.logger.error('Password reset email failed:', err?.message),
+      );
 
-    return { message: 'If that email is registered, a reset link has been sent.' };
+    return {
+      message: 'If that email is registered, a reset link has been sent.',
+    };
   }
 
   async resetPassword(token: string, newPassword: string) {
@@ -324,7 +380,9 @@ export class AuthService {
     if (!user) throw new BadRequestException('Invalid or expired reset link.');
 
     if (new Date() > new Date((user as any).passwordResetExpiry)) {
-      throw new BadRequestException('Reset link has expired. Please request a new one.');
+      throw new BadRequestException(
+        'Reset link has expired. Please request a new one.',
+      );
     }
 
     const hashed = await bcrypt.hash(newPassword, 12);
@@ -337,15 +395,22 @@ export class AuthService {
     return { message: 'Password reset successfully. You can now log in.' };
   }
 
-  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+  async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+  ) {
     const user = await this.usersService.findById(userId);
     if (!user) throw new NotFoundException('User not found');
 
-    const userWithPw = await this.usersService.findByEmailWithPassword(user.email);
+    const userWithPw = await this.usersService.findByEmailWithPassword(
+      user.email,
+    );
     if (!userWithPw) throw new NotFoundException('User not found');
 
     const isValid = await bcrypt.compare(currentPassword, userWithPw.password);
-    if (!isValid) throw new BadRequestException('Current password is incorrect');
+    if (!isValid)
+      throw new BadRequestException('Current password is incorrect');
 
     const hashed = await bcrypt.hash(newPassword, 10);
     await this.usersService.updateProfile(userId, { password: hashed } as any);

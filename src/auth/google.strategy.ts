@@ -49,6 +49,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
 
       if (user) {
         user.googleId = googleId;
+        user.emailVerified = true;
         if (avatarUrl) {
           user.avatarUrl = avatarUrl;
         }
@@ -63,6 +64,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
         newUser.avatarUrl = avatarUrl;
         newUser.role = 'customer' as any;
         newUser.isVerified = true;
+        newUser.emailVerified = true;
         newUser.password = Math.random().toString(36);
         newUser.phone = '00000000000';
         user = await this.userRepo.save(newUser);

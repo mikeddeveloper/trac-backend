@@ -41,10 +41,15 @@ export class EmailService {
     const resendKey = this.configService.get<string>('RESEND_API_KEY');
     if (resendKey) {
       try {
-        const result = await this.resend.emails.send({
-          ...message,
-          from: this.fromAddress,
-        });
+        const result = await this.resend.emails.send(
+          {
+            ...message,
+            from: this.fromAddress,
+          },
+          // The Resend SDK otherwise waits indefinitely when an outbound
+          // connection stalls, preventing the configured SMTP fallback.
+          { signal: AbortSignal.timeout(15000) } as any,
+        );
         if (!result.error) return result;
         this.logger.error(`Resend rejected email to ${message.to}: ${JSON.stringify(result.error)}`);
       } catch (error: any) {

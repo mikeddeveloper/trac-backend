@@ -134,6 +134,7 @@ export class AuthController {
         phone: user.phone,
         role: user.role,
         isVerified: user.isVerified,
+        emailVerified: user.emailVerified,
       }
     };
   }
