@@ -135,6 +135,17 @@ export class AuthController {
         role: user.role,
         isVerified: user.isVerified,
         emailVerified: user.emailVerified,
+        rating: user.rating,
+        totalRatings: user.totalRatings,
+        tripsCompleted: user.tripsCompleted,
+        vehicleType: user.vehicleType,
+        licenseNumber: user.licenseNumber,
+        vehiclePlate: user.vehiclePlate,
+        vehicleYear: user.vehicleYear,
+        rcNumber: user.rcNumber,
+        state: user.state,
+        companyName: user.companyName,
+        avatarUrl: user.avatarUrl,
       }
     };
   }
