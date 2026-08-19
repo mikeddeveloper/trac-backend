@@ -50,7 +50,7 @@ export class EventsGateway
   private readonly logger = new Logger(EventsGateway.name);
   private userSocketMap = new Map<string, string>();
   private socketUserMap = new Map<string, string>();
-  private jobLocationMap = new Map<string, { lat: number; lng: number; updatedAt: Date }>();
+  private jobLocationMap = new Map<string, { lat: number; lng: number; accuracy?: number; speed?: number; updatedAt: Date }>();
   private pendingNotifications = new Map<string, Array<{ event: string; data: any }>>();
 
   constructor(
@@ -137,10 +137,10 @@ export class EventsGateway
 
   @SubscribeMessage('transporter:locationUpdate')
   async handleLocationUpdate(
-    @MessageBody() data: { jobId: string; lat: number; lng: number },
+    @MessageBody() data: { jobId: string; lat: number; lng: number; accuracy?: number; speed?: number },
     @ConnectedSocket() client: Socket,
   ) {
-    const { jobId, lat, lng } = data;
+    const { jobId, lat, lng, accuracy, speed } = data;
     if (
       !jobId ||
       !Number.isFinite(lat) ||
@@ -157,10 +157,31 @@ export class EventsGateway
     }
 
     const updatedAt = new Date();
-    this.jobLocationMap.set(jobId, { lat, lng, updatedAt });
+    const location = {
+      lat,
+      lng,
+      accuracy: Number.isFinite(accuracy) ? accuracy : undefined,
+      speed: Number.isFinite(speed) ? speed : undefined,
+      updatedAt,
+    };
+    this.jobLocationMap.set(jobId, location);
     this.logger.log(`📍 Location update job ${jobId}: ${lat}, ${lng}`);
-    this.notifyUser(job.customerId, 'job:locationUpdate', { jobId, lat, lng, updatedAt });
+    this.notifyUser(job.customerId, 'job:locationUpdate', { jobId, ...location });
     return { ok: true };
+  }
+
+  @SubscribeMessage('job:getLocation')
+  async handleGetLocation(
+    @MessageBody() data: { jobId: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    if (!data?.jobId) return { ok: false, error: 'Job ID is required' };
+    const job = await this.jobRepo.findOne({ where: { id: data.jobId } });
+    if (!job || ![job.customerId, job.transporterId].includes(client.data.userId)) {
+      return { ok: false, error: 'Not authorized for this job' };
+    }
+    const location = this.jobLocationMap.get(data.jobId);
+    return location ? { ok: true, jobId: data.jobId, ...location } : { ok: true, jobId: data.jobId, location: null };
   }
 
   // ─── Call accepted ────────────────────────────────────────────────────────
