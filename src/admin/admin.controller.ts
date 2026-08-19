@@ -328,6 +328,17 @@ export class AdminController {
     return this.verificationService.approveLicense(userId);
   }
 
+  @Patch('license/:userId/expiry')
+  @UseGuards(AuthGuard('jwt'))
+  async updateLicenseExpiry(
+    @Request() req: any,
+    @Param('userId') userId: string,
+    @Body() body: { licenseExpiry: string },
+  ) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.verificationService.updateLicenseExpiry(userId, body.licenseExpiry);
+  }
+
   // ─── PATCH /admin/license/:userId/reject ─────────────────────────────────────
   @Patch('license/:userId/reject')
   @UseGuards(AuthGuard('jwt'))

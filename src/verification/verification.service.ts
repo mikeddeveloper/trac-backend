@@ -200,6 +200,14 @@ export class VerificationService {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) throw new BadRequestException('User not found');
 
+    if (!data.licenseNumber?.trim() || !data.licenseExpiry || !data.vehicleType) {
+      throw new BadRequestException('License number, expiry date and vehicle type are required');
+    }
+    const submittedExpiry = new Date(data.licenseExpiry);
+    if (Number.isNaN(submittedExpiry.getTime()) || submittedExpiry.getTime() < new Date().setHours(0, 0, 0, 0)) {
+      throw new BadRequestException('License expiry date must be a valid future date');
+    }
+
     if (!(user as any).ninVerified && !user.isVerified) {
       throw new BadRequestException('Please complete NIN verification first');
     }
@@ -239,11 +247,30 @@ export class VerificationService {
     };
   }
 
+  async updateLicenseExpiry(userId: string, licenseExpiry: string) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new BadRequestException('User not found');
+    const expiry = new Date(licenseExpiry);
+    if (!licenseExpiry || Number.isNaN(expiry.getTime()) || expiry.getTime() < new Date().setHours(0, 0, 0, 0)) {
+      throw new BadRequestException('Enter a valid future expiry date');
+    }
+    await this.userRepo.update(userId, { licenseExpiry } as any);
+    return { message: 'License expiry date updated', licenseExpiry };
+  }
+
   // ─── License approval (called by admin) ──────────────────────────────────────
 
   async approveLicense(userId: string) {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) throw new BadRequestException('User not found');
+
+    const expiry = (user as any).licenseExpiry ? new Date((user as any).licenseExpiry) : null;
+    if (!expiry || Number.isNaN(expiry.getTime())) {
+      throw new BadRequestException('Enter the license expiry date before approval');
+    }
+    if (expiry.getTime() < new Date().setHours(0, 0, 0, 0)) {
+      throw new BadRequestException('This license has expired and cannot be approved');
+    }
 
     await this.userRepo.update(userId, {
       licenseStatus: 'approved',
