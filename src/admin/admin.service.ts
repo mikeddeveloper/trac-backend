@@ -338,8 +338,6 @@ export class AdminService {
         otpVerified: (j as any).otpVerified,
         proofOfDeliveryUrl: j.proofOfDeliveryUrl,
         proofUploadedAt: j.proofUploadedAt,
-        recipientName: (j as any).recipientName,
-        recipientPhone: (j as any).recipientPhone,
         createdAt: j.createdAt,
         customer: j.customer ? {
           id: j.customer.id,

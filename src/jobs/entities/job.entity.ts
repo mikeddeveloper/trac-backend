@@ -38,12 +38,6 @@ export class Job {
   @Column()
   deliveryState!: string;
 
-  @Column({ nullable: true })
-  recipientName!: string;
-
-  @Column({ nullable: true })
-  recipientPhone!: string;
-
   @Column()
   cargoDescription!: string;
 
