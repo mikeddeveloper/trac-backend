@@ -40,6 +40,30 @@ export class Job {
   @Column()
   deliveryState!: string;
 
+  @Column({ nullable: true })
+  pickupNote!: string;
+
+  @Column({ nullable: true })
+  deliveryNote!: string;
+
+  @Column({ nullable: true })
+  recipientName!: string;
+
+  @Column({ nullable: true })
+  recipientPhone!: string;
+
+  @Column({ nullable: true, type: 'double precision' })
+  pickupLat!: number;
+
+  @Column({ nullable: true, type: 'double precision' })
+  pickupLng!: number;
+
+  @Column({ nullable: true, type: 'double precision' })
+  deliveryLat!: number;
+
+  @Column({ nullable: true, type: 'double precision' })
+  deliveryLng!: number;
+
   @Column()
   cargoDescription!: string;
 

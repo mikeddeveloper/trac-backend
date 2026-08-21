@@ -64,6 +64,9 @@ export class JobsService {
     if (dto.disclaimerAccepted !== true || !dto.goodsCategory) {
       throw new BadRequestException('You must complete the goods declaration and accept the prohibited-items policy');
     }
+    if (!dto.recipientName?.trim() || !dto.recipientPhone?.trim()) {
+      throw new BadRequestException('Recipient name and phone number are required');
+    }
     const cargoWeight = Number(dto.cargoWeight);
     if (!Number.isFinite(cargoWeight) || cargoWeight < 0.5 || cargoWeight > 50) {
       throw new BadRequestException('Cargo weight must be between 0.5 kg and 50 kg');
@@ -156,6 +159,10 @@ export class JobsService {
       delete safeJob.deliveryOtp;
       delete safeJob.disputeReason;
       delete safeJob.proofOfDeliveryUrl;
+      delete safeJob.recipientName;
+      delete safeJob.recipientPhone;
+      delete safeJob.pickupNote;
+      delete safeJob.deliveryNote;
     }
     return safeJob;
   }
