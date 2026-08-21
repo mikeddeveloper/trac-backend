@@ -35,6 +35,12 @@ export class PaymentsController {
     return this.paymentsService.verifyPayment(reference, req.user.id);
   }
 
+  @Post('cancel/:reference')
+  @UseGuards(AuthGuard('jwt'))
+  async cancelPayment(@Param('reference') reference: string, @Req() req: any) {
+    return this.paymentsService.cancelPendingPayment(reference, req.user.id);
+  }
+
   // ─── GET /payments/payout/:amount ───────────────────────────────────────────
   @Get('payout/:amount')
   @UseGuards(AuthGuard('jwt'))

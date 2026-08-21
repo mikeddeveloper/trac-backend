@@ -10,7 +10,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Job, JobStatus } from './entities/job.entity';
 import { User } from '../users/entities/user.entity';
 import { EventsGateway } from '../events/events.gateway';
@@ -22,7 +22,9 @@ import { ConfigService } from '@nestjs/config';
 
 const ALLOWED_TRANSITIONS: Record<JobStatus, JobStatus[]> = {
   [JobStatus.PENDING]:    [JobStatus.BIDDING],
-  [JobStatus.BIDDING]:    [JobStatus.ACCEPTED],
+  [JobStatus.BIDDING]:    [JobStatus.BID_SELECTED],
+  [JobStatus.BID_SELECTED]: [JobStatus.PAYMENT_PENDING, JobStatus.BIDDING],
+  [JobStatus.PAYMENT_PENDING]: [JobStatus.ACCEPTED, JobStatus.BID_SELECTED, JobStatus.BIDDING],
   [JobStatus.ACCEPTED]:   [JobStatus.IN_TRANSIT],
   [JobStatus.IN_TRANSIT]: [JobStatus.DELIVERED],
   [JobStatus.DELIVERED]:  [],
@@ -121,7 +123,7 @@ export class JobsService {
 
   async getTransporterJobs(transporterId: string): Promise<Job[]> {
     return this.jobRepo.find({
-      where: { transporterId },
+      where: { transporterId, status: In([JobStatus.ACCEPTED, JobStatus.IN_TRANSIT, JobStatus.DELIVERED]) },
       order: { createdAt: 'DESC' },
     });
   }
@@ -172,7 +174,7 @@ export class JobsService {
     await this.jobRepo.update(jobId, {
       transporterId,
       acceptedAmount,
-      status: JobStatus.ACCEPTED,
+      status: JobStatus.BID_SELECTED,
     });
 
     const updatedJob = await this.getJobById(jobId);
@@ -182,8 +184,8 @@ export class JobsService {
       this.eventsGateway.notifyUser(updatedJob.customerId, 'job:statusUpdate', {
         jobId,
         previousStatus: JobStatus.BIDDING,
-        newStatus: JobStatus.ACCEPTED,
-        message: 'Your job has been accepted by a transporter',
+        newStatus: JobStatus.BID_SELECTED,
+        message: 'Transporter selected. Complete payment to confirm the delivery.',
         updatedAt: new Date(),
       });
     }
@@ -217,6 +219,10 @@ export class JobsService {
     }
     if (userRole === 'customer' && job.customerId !== userId) {
       throw new ForbiddenException('This is not your job');
+    }
+
+    if (newStatus === JobStatus.IN_TRANSIT) {
+      await this.paymentsService.assertEscrowPaid(jobId);
     }
 
     if (newStatus === JobStatus.DELIVERED && !job.proofOfDeliveryUrl) {

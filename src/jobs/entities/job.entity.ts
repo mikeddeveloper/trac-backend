@@ -15,6 +15,8 @@ import { User } from '../../users/entities/user.entity';
 export enum JobStatus {
   PENDING    = 'pending',
   BIDDING    = 'bidding',
+  BID_SELECTED = 'bid-selected',
+  PAYMENT_PENDING = 'payment-pending',
   ACCEPTED   = 'accepted',
   IN_TRANSIT = 'in-transit',
   DELIVERED  = 'delivered',
@@ -135,6 +137,21 @@ export class Job {
 
   @Column({ nullable: true })
   transporterId!: string;
+
+  @Column({ nullable: true, type: 'double precision' })
+  lastKnownLat!: number;
+
+  @Column({ nullable: true, type: 'double precision' })
+  lastKnownLng!: number;
+
+  @Column({ nullable: true, type: 'double precision' })
+  lastLocationAccuracy!: number;
+
+  @Column({ nullable: true, type: 'double precision' })
+  lastLocationSpeed!: number;
+
+  @Column({ nullable: true, type: 'timestamp' })
+  lastLocationAt!: Date;
 
   @CreateDateColumn()
   createdAt!: Date;

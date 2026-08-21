@@ -17,6 +17,15 @@ export class PaymentsScheduler {
   ) {}
 
   @Cron(CronExpression.EVERY_HOUR)
+  async recoverAbandonedPayments(): Promise<void> {
+    const cutoff = new Date(Date.now() - 30 * 60 * 1000);
+    const pending = await this.paymentRepo.find({ where: { status: PaymentStatus.PENDING, createdAt: LessThan(cutoff) } });
+    for (const payment of pending) {
+      await this.paymentsService.cancelPendingPayment(payment.reference, payment.customerId).catch(() => {});
+    }
+  }
+
+  @Cron(CronExpression.EVERY_HOUR)
   async autoReleaseStaleEscrows(): Promise<void> {
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
 

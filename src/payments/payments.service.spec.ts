@@ -1,5 +1,6 @@
 import axios from 'axios';
-import { UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { JobStatus } from '../jobs/entities/job.entity';
 import { PaymentsService } from './payments.service';
 
 jest.mock('axios');
@@ -12,6 +13,7 @@ describe('PaymentsService launch protections', () => {
     transporterId: 'transporter-1',
     acceptedAmount: 125000,
     distanceKm: 12,
+    status: JobStatus.BID_SELECTED,
   };
   const paymentRepo = {
     findOne: jest.fn(),
@@ -19,7 +21,7 @@ describe('PaymentsService launch protections', () => {
     save: jest.fn(async (value) => value),
     update: jest.fn().mockResolvedValue({ affected: 1 }),
   };
-  const jobRepo = { findOne: jest.fn() };
+  const jobRepo = { findOne: jest.fn(), update: jest.fn().mockResolvedValue({ affected: 1 }) };
   const userRepo = { findOne: jest.fn() };
   const configService = {
     get: jest.fn((key: string) => ({
@@ -33,7 +35,7 @@ describe('PaymentsService launch protections', () => {
     paymentRepo as any,
     jobRepo as any,
     userRepo as any,
-    {} as any,
+    { notifyUser: jest.fn() } as any,
     {} as any,
     {} as any,
   );
@@ -63,6 +65,13 @@ describe('PaymentsService launch protections', () => {
   it('does not let another customer initialize payment for the job', async () => {
     await expect(service.initializePayment('attacker@example.com', job.id, 'customer-2'))
       .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(mockedAxios.post).not.toHaveBeenCalled();
+  });
+
+  it('does not initialize payment until a bid has been selected', async () => {
+    jobRepo.findOne.mockResolvedValueOnce({ ...job, status: JobStatus.BIDDING });
+    await expect(service.initializePayment('customer@example.com', job.id, job.customerId))
+      .rejects.toBeInstanceOf(BadRequestException);
     expect(mockedAxios.post).not.toHaveBeenCalled();
   });
 

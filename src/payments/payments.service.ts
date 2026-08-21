@@ -70,6 +70,50 @@ export class PaymentsService {
     }
   }
 
+  async assertEscrowPaid(jobId: string): Promise<void> {
+    const payment = await this.paymentRepo.findOne({
+      where: [
+        { jobId, type: PaymentType.ESCROW, status: PaymentStatus.SUCCESS },
+        { jobId, type: PaymentType.ESCROW, status: PaymentStatus.HELD },
+        { jobId, type: PaymentType.ESCROW, status: PaymentStatus.RELEASED },
+      ],
+      order: { createdAt: 'DESC' },
+    });
+    if (!payment) throw new BadRequestException('Payment must be confirmed in escrow before this delivery can start');
+  }
+
+  private async activatePaidJob(payment: Payment): Promise<void> {
+    const job = await this.jobRepo.findOne({ where: { id: payment.jobId } });
+    if (!job || !job.transporterId || [JobStatus.ACCEPTED, JobStatus.IN_TRANSIT, JobStatus.DELIVERED].includes(job.status)) return;
+    await this.jobRepo.update(job.id, { status: JobStatus.ACCEPTED });
+    const payload = { jobId: job.id, previousStatus: job.status, newStatus: JobStatus.ACCEPTED, message: 'Payment confirmed. Delivery is ready for pickup.', updatedAt: new Date() };
+    this.eventsGateway.notifyUser(job.customerId, 'job:statusUpdate', payload);
+    this.eventsGateway.notifyUser(job.transporterId, 'job:statusUpdate', payload);
+    this.eventsGateway.notifyUser(job.transporterId, 'payment:confirmed:transporter', {
+      jobId: job.id, amount: payment.amount, reference: payment.reference,
+      message: `Customer has paid ₦${Number(payment.amount).toLocaleString()}. Proceed to pickup!`,
+    });
+    await this.pushService.sendToUser(job.transporterId, {
+      title: '💰 Payment Confirmed', body: `Customer paid ₦${Number(payment.amount).toLocaleString()}. Head to pickup now!`,
+      url: '/dashboard/tracking', tag: 'payment', icon: '/icons/icon-192x192.png',
+    }).catch(() => {});
+  }
+
+  async cancelPendingPayment(reference: string, customerId: string): Promise<{ status: string; jobId: string }> {
+    const payment = await this.paymentRepo.findOne({ where: { reference, customerId, type: PaymentType.ESCROW } });
+    if (!payment) throw new NotFoundException('Payment not found');
+    if ([PaymentStatus.SUCCESS, PaymentStatus.HELD, PaymentStatus.RELEASED].includes(payment.status)) {
+      throw new BadRequestException('A confirmed payment cannot be cancelled');
+    }
+    await this.paymentRepo.update(payment.id, { status: PaymentStatus.FAILED, authorizationUrl: null as any });
+    const job = await this.jobRepo.findOne({ where: { id: payment.jobId } });
+    if (job?.status === JobStatus.PAYMENT_PENDING) {
+      await this.jobRepo.update(job.id, { status: JobStatus.BID_SELECTED });
+      this.eventsGateway.notifyUser(job.customerId, 'job:statusUpdate', { jobId: job.id, previousStatus: JobStatus.PAYMENT_PENDING, newStatus: JobStatus.BID_SELECTED, message: 'Payment was not completed. You can try again.', updatedAt: new Date() });
+    }
+    return { status: 'cancelled', jobId: payment.jobId };
+  }
+
   // ─── Initialize Payment ─────────────────────────────────────────────────────
 
   async initializePayment(
@@ -82,6 +126,9 @@ export class PaymentsService {
     if (job.customerId !== customerId) throw new UnauthorizedException('This job does not belong to you');
     if (!job.acceptedAmount || Number(job.acceptedAmount) <= 0) {
       throw new BadRequestException('This job does not have an accepted bid');
+    }
+    if (![JobStatus.BID_SELECTED, JobStatus.PAYMENT_PENDING].includes(job.status)) {
+      throw new BadRequestException('Select a transporter bid before starting payment');
     }
 
     const existing = await this.paymentRepo.findOne({
@@ -139,6 +186,12 @@ export class PaymentsService {
       });
       await this.paymentRepo.save(payment);
 
+      await this.jobRepo.update(jobId, { status: JobStatus.PAYMENT_PENDING });
+      this.eventsGateway.notifyUser(customerId, 'job:statusUpdate', {
+        jobId, previousStatus: job.status, newStatus: JobStatus.PAYMENT_PENDING,
+        message: 'Payment is awaiting confirmation', updatedAt: new Date(),
+      });
+
       return { authorizationUrl: authorization_url, reference, accessCode: access_code, vatAmount, totalCharged };
     } catch (error) {
       this.logger.error('initializePayment error', (error as any)?.response?.data || (error as any)?.message);
@@ -177,6 +230,9 @@ export class PaymentsService {
             paystackMeta: data,
           },
         );
+        await this.activatePaidJob({ ...payment, status: PaymentStatus.SUCCESS, paidAt: new Date(data.paid_at), paystackMeta: data });
+      } else if (['abandoned', 'failed', 'reversed'].includes(data.status)) {
+        await this.cancelPendingPayment(reference, customerId);
       }
 
       return {
@@ -250,6 +306,7 @@ export class PaymentsService {
       paidAt: new Date(paid_at),
       paystackMeta: data,
     });
+    await this.activatePaidJob({ ...payment, status: PaymentStatus.SUCCESS, paidAt: new Date(paid_at), paystackMeta: data });
 
     this.logger.log(`💰 Payment ${reference} → SUCCESS`);
 
@@ -262,21 +319,6 @@ export class PaymentsService {
     }
 
     const job = await this.paymentRepo.manager.findOne('Job', { where: { id: payment.jobId } }) as any;
-    if (job?.transporterId) {
-      this.eventsGateway.notifyUser(job.transporterId, 'payment:confirmed:transporter', {
-        jobId: payment.jobId,
-        amount: payment.amount,
-        message: `Customer has paid ₦${Number(payment.amount).toLocaleString()}. Proceed to pickup!`,
-        reference: payment.reference,
-      });
-      await this.pushService.sendToUser(job.transporterId, {
-        title: '💰 Payment Confirmed',
-        body: `Customer paid ₦${Number(payment.amount).toLocaleString()}. Head to pickup now!`,
-        url: '/dashboard/tracking',
-        tag: 'payment',
-        icon: '/icons/icon-192x192.png',
-      }).catch(() => {});
-    }
 
     try {
       const customer = job ? await this.paymentRepo.manager.findOne('User', { where: { id: job.customerId } }) as any : null;

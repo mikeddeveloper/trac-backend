@@ -17,7 +17,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Job } from '../jobs/entities/job.entity';
+import { Job, JobStatus } from '../jobs/entities/job.entity';
 
 const WS_ALLOWED_ORIGINS = [
   'https://traclogistics.com.ng',
@@ -155,6 +155,9 @@ export class EventsGateway
     if (!job || job.transporterId !== client.data.userId || !job.customerId) {
       return { ok: false, error: 'Not authorized for this job' };
     }
+    if (job.status !== JobStatus.IN_TRANSIT) {
+      return { ok: false, error: 'Live location is only available for paid, in-transit jobs' };
+    }
 
     const updatedAt = new Date();
     const location = {
@@ -165,6 +168,13 @@ export class EventsGateway
       updatedAt,
     };
     this.jobLocationMap.set(jobId, location);
+    await this.jobRepo.update(jobId, {
+      lastKnownLat: lat,
+      lastKnownLng: lng,
+      lastLocationAccuracy: location.accuracy ?? null as any,
+      lastLocationSpeed: location.speed ?? null as any,
+      lastLocationAt: updatedAt,
+    });
     this.logger.log(`📍 Location update job ${jobId}: ${lat}, ${lng}`);
     this.notifyUser(job.customerId, 'job:locationUpdate', { jobId, ...location });
     return { ok: true };
@@ -180,7 +190,11 @@ export class EventsGateway
     if (!job || ![job.customerId, job.transporterId].includes(client.data.userId)) {
       return { ok: false, error: 'Not authorized for this job' };
     }
-    const location = this.jobLocationMap.get(data.jobId);
+    const memoryLocation = this.jobLocationMap.get(data.jobId);
+    const location = memoryLocation || (Number.isFinite(Number(job.lastKnownLat)) && Number.isFinite(Number(job.lastKnownLng)) && job.lastLocationAt ? {
+      lat: Number(job.lastKnownLat), lng: Number(job.lastKnownLng), accuracy: job.lastLocationAccuracy == null ? undefined : Number(job.lastLocationAccuracy),
+      speed: job.lastLocationSpeed == null ? undefined : Number(job.lastLocationSpeed), updatedAt: job.lastLocationAt,
+    } : null);
     return location ? { ok: true, jobId: data.jobId, ...location } : { ok: true, jobId: data.jobId, location: null };
   }
 

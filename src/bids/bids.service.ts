@@ -130,21 +130,16 @@ export class BidsService {
     this.eventsGateway.notifyUser(bid.transporterId, 'bid:accepted', {
       jobId: bid.jobId,
       amount: bid.amount,
-      message: 'Your bid has been accepted! Prepare for pickup.',
+      message: 'Your bid was selected. Wait for payment confirmation before pickup.',
     });
 
-    // ── Push: notify transporter their bid was accepted ──
     const route = `${bid.job.pickupState} → ${bid.job.deliveryState}`;
-    await this.pushService.sendToUser(
-      bid.transporterId,
-      this.pushService.templates.bidAccepted(route),
-    ).catch(() => {});
     const transporter = await this.userRepo.findOne({ where: { id: bid.transporterId } });
     if (transporter) await this.emailService.sendActivityEmail(
       transporter,
       'Your Trac bid was accepted',
-      'Your bid was accepted',
-      `Your bid for ${route} has been accepted. The customer will complete payment before pickup.`,
+      'Your bid was selected',
+      `Your bid for ${route} was selected. Wait for payment confirmation before pickup.`,
       undefined,
       'View Delivery',
     );
