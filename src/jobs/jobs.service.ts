@@ -139,7 +139,7 @@ export class JobsService {
     return job;
   }
 
-  toClientJob(job: Job, includeDeliveryDetails = false): Record<string, any> {
+  toClientJob(job: Job, includeDeliveryDetails = false, includeDeliveryOtp = includeDeliveryDetails): Record<string, any> {
     const safeParty = (user?: User) => user ? {
       id: user.id,
       fullName: user.fullName,
@@ -156,7 +156,6 @@ export class JobsService {
       transporter: safeParty(job.transporter),
     };
     if (!includeDeliveryDetails) {
-      delete safeJob.deliveryOtp;
       delete safeJob.disputeReason;
       delete safeJob.proofOfDeliveryUrl;
       delete safeJob.recipientName;
@@ -164,6 +163,7 @@ export class JobsService {
       delete safeJob.pickupNote;
       delete safeJob.deliveryNote;
     }
+    if (!includeDeliveryOtp) delete safeJob.deliveryOtp;
     return safeJob;
   }
 
@@ -366,7 +366,7 @@ export class JobsService {
 
   // ─── Generate Delivery OTP ────────────────────────────────────────────────
 
-  async generateDeliveryOtp(jobId: string, transporterId: string): Promise<{ otp: string; message: string }> {
+  async generateDeliveryOtp(jobId: string, transporterId: string): Promise<{ message: string }> {
     const job = await this.getJobById(jobId);
 
     if (job.transporterId !== transporterId) {
@@ -401,7 +401,7 @@ export class JobsService {
       message: 'Delivery PIN sent to customer. Ask them for the PIN when you arrive.',
     });
 
-    return { otp: pin, message: 'PIN sent to customer' };
+    return { message: 'PIN sent to customer' };
   }
 
   // ─── Verify Delivery OTP ──────────────────────────────────────────────────

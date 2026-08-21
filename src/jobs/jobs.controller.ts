@@ -52,7 +52,7 @@ export class JobsController {
 
     if (role === 'transporter') {
       const jobs = await this.jobsService.getTransporterJobs(userId);
-      return jobs.map((job) => this.jobsService.toClientJob(job, true));
+      return jobs.map((job) => this.jobsService.toClientJob(job, true, false));
     }
     if (role === 'customer' || role === 'enterprise') {
       const jobs = await this.jobsService.getMyJobs(userId);
@@ -76,7 +76,9 @@ export class JobsController {
     if (!isParty && !canBrowse && req.user.role !== 'admin') {
       throw new ForbiddenException('You cannot access this job');
     }
-    return this.jobsService.toClientJob(job, isParty || req.user.role === 'admin');
+    const includeDetails = isParty || req.user.role === 'admin';
+    const includeOtp = job.customerId === req.user.id || req.user.role === 'admin';
+    return this.jobsService.toClientJob(job, includeDetails, includeOtp);
   }
 
   // ─── PATCH /jobs/:id/status ────────────────────────────────────────────────
@@ -87,9 +89,10 @@ export class JobsController {
     @Body() body: { status: JobStatus; note?: string },
   ) {
     const role = req.user.role || 'transporter';
-    return this.jobsService.updateJobStatus(
+    const job = await this.jobsService.updateJobStatus(
       id, body.status, req.user.id, role, body.note,
     );
+    return this.jobsService.toClientJob(job, true, role !== 'transporter');
   }
 
   // ─── POST /jobs/:id/generate-otp ──────────────────────────────────────────
@@ -151,12 +154,13 @@ export class JobsController {
       throw new BadRequestException('Please select a photo to upload');
     }
 
-    return this.jobsService.uploadProofOfDelivery(
+    const job = await this.jobsService.uploadProofOfDelivery(
       id,
       req.user.id,
       file.buffer,
       file.mimetype,
       file.originalname,
     );
+    return this.jobsService.toClientJob(job, true, false);
   }
 }
