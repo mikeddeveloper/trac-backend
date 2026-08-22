@@ -48,7 +48,10 @@ export class EventsGateway
   server!: Server;
 
   private readonly logger = new Logger(EventsGateway.name);
-  private userSocketMap = new Map<string, string>();
+  // A user can have the notification socket plus a tracking-page socket (and
+  // may also be signed in on phone and desktop). Keep every live socket so a
+  // later connection does not silently steal location updates from the map.
+  private userSocketMap = new Map<string, Set<string>>();
   private socketUserMap = new Map<string, string>();
   private jobLocationMap = new Map<string, { lat: number; lng: number; accuracy?: number; speed?: number; updatedAt: Date }>();
   private pendingNotifications = new Map<string, Array<{ event: string; data: any }>>();
@@ -79,7 +82,9 @@ export class EventsGateway
       });
 
       const userId = payload.sub;
-      this.userSocketMap.set(userId, client.id);
+      const userSockets = this.userSocketMap.get(userId) || new Set<string>();
+      userSockets.add(client.id);
+      this.userSocketMap.set(userId, userSockets);
       this.socketUserMap.set(client.id, userId);
       client.data.userId = userId;
 
@@ -103,7 +108,9 @@ export class EventsGateway
   handleDisconnect(client: Socket) {
     const userId = client.data?.userId;
     if (userId) {
-      this.userSocketMap.delete(userId);
+      const userSockets = this.userSocketMap.get(userId);
+      userSockets?.delete(client.id);
+      if (userSockets?.size === 0) this.userSocketMap.delete(userId);
       this.socketUserMap.delete(client.id);
       this.logger.log(`❌ User ${userId} disconnected`);
       for (const key of this.lastLocationUpdate.keys()) {
@@ -115,9 +122,9 @@ export class EventsGateway
   // ─── Notify specific user ─────────────────────────────────────────────────
 
   notifyUser(userId: string, event: string, data: any) {
-    const socketId = this.userSocketMap.get(userId);
-    if (socketId) {
-      this.server.to(socketId).emit(event, data);
+    const socketIds = this.userSocketMap.get(userId);
+    if (socketIds?.size) {
+      socketIds.forEach(socketId => this.server.to(socketId).emit(event, data));
       this.logger.log(`📡 Emitted '${event}' to user ${userId}`);
     } else {
       const existing = this.pendingNotifications.get(userId) || [];
@@ -131,9 +138,9 @@ export class EventsGateway
   }
 
   emitToConnectedUser(userId: string, event: string, data: any): boolean {
-    const socketId = this.userSocketMap.get(userId);
-    if (!socketId) return false;
-    this.server.to(socketId).emit(event, data);
+    const socketIds = this.userSocketMap.get(userId);
+    if (!socketIds?.size) return false;
+    socketIds.forEach(socketId => this.server.to(socketId).emit(event, data));
     return true;
   }
 
