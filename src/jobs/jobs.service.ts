@@ -69,10 +69,12 @@ export class JobsService {
       throw new BadRequestException('Recipient name and phone number are required');
     }
     const cargoWeight = Number(dto.cargoWeight);
-    const vehicleLimits: Record<string, number> = { rider: 20, van: 500, 'truck-small': 2000, 'truck-medium': 5000, 'truck-large': 20000 };
-    const vehicleLimit = vehicleLimits[String(dto.vehicleType || '')];
-    if (!Number.isFinite(cargoWeight) || cargoWeight < 0.5 || !vehicleLimit || cargoWeight > vehicleLimit) {
-      throw new BadRequestException(vehicleLimit ? `Cargo weight must be between 0.5 kg and ${vehicleLimit.toLocaleString()} kg for this vehicle` : 'Select a valid vehicle type');
+    const validVehicleTypes = new Set(['rider', 'van', 'truck-small', 'truck-medium', 'truck-large']);
+    if (!Number.isFinite(cargoWeight) || cargoWeight <= 0) {
+      throw new BadRequestException('Cargo weight must be greater than 0 kg');
+    }
+    if (!validVehicleTypes.has(String(dto.vehicleType || ''))) {
+      throw new BadRequestException('Select a valid vehicle type');
     }
     try {
       const rows = await this.jobRepo.query(
