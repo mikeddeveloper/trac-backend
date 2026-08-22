@@ -18,8 +18,10 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Throttle } from '@nestjs/throttler';
 import { JobsService } from './jobs.service';
 import { JobStatus } from './entities/job.entity';
+import { detectSafeImage } from '../common/security/image-signature';
 
 @Controller('jobs')
 @UseGuards(AuthGuard('jwt'))
@@ -97,12 +99,14 @@ export class JobsController {
 
   // ─── POST /jobs/:id/generate-otp ──────────────────────────────────────────
   @Post(':id/generate-otp')
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
   async generateOtp(@Param('id') id: string, @Req() req: any) {
     return this.jobsService.generateDeliveryOtp(id, req.user.id);
   }
 
   // ─── POST /jobs/:id/verify-otp ────────────────────────────────────────────
   @Post(':id/verify-otp')
+  @Throttle({ default: { limit: 8, ttl: 60000 } })
   async verifyOtp(
     @Param('id') id: string,
     @Req() req: any,
@@ -153,12 +157,14 @@ export class JobsController {
     if (!file) {
       throw new BadRequestException('Please select a photo to upload');
     }
+    const verifiedMime = detectSafeImage(file.buffer);
+    if (!verifiedMime) throw new BadRequestException('The uploaded file is not a valid JPEG, PNG, or WebP image');
 
     const job = await this.jobsService.uploadProofOfDelivery(
       id,
       req.user.id,
       file.buffer,
-      file.mimetype,
+      verifiedMime,
       file.originalname,
     );
     return this.jobsService.toClientJob(job, true, false);

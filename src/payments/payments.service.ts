@@ -213,6 +213,9 @@ export class PaymentsService {
     if (!payment || payment.customerId !== customerId) {
       throw new NotFoundException('Payment not found');
     }
+    if ([PaymentStatus.SUCCESS, PaymentStatus.HELD, PaymentStatus.RELEASED].includes(payment.status)) {
+      return { status: payment.status, amount: Number(payment.amount), reference: payment.reference, paidAt: payment.paidAt };
+    }
     try {
       const response = await axios.get(
         `${this.paystackUrl}/transaction/verify/${reference}`,
@@ -223,7 +226,8 @@ export class PaymentsService {
       const amountMatches = Number(data.amount) === Math.round(Number(payment.amount) * 100);
       const currencyMatches = data.currency === payment.currency;
       const referenceMatches = data.reference === payment.reference;
-      if (!amountMatches || !currencyMatches || !referenceMatches) {
+      const metadataMatches = data.metadata?.jobId === payment.jobId && data.metadata?.customerId === payment.customerId;
+      if (!amountMatches || !currencyMatches || !referenceMatches || !metadataMatches) {
         this.logger.error(`Payment verification mismatch for ${reference}`);
         throw new BadRequestException('Payment details did not match the expected transaction');
       }
@@ -264,7 +268,9 @@ export class PaymentsService {
     if (!signature) throw new UnauthorizedException('Missing signature');
 
     const hash = crypto.createHmac('sha512', secret).update(rawBody).digest('hex');
-    if (hash !== signature) {
+    const expected = Buffer.from(hash, 'hex');
+    const received = /^[a-f0-9]{128}$/i.test(signature) ? Buffer.from(signature, 'hex') : Buffer.alloc(0);
+    if (received.length !== expected.length || !crypto.timingSafeEqual(expected, received)) {
       this.logger.warn('⚠️ Webhook signature mismatch');
       throw new UnauthorizedException('Invalid webhook signature');
     }

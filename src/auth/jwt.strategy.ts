@@ -20,6 +20,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     const userId = payload.id || payload.sub;
     const user = await this.usersService.findById(userId);
     if (user.isSuspended) throw new UnauthorizedException('Account suspended');
+    if (Number(payload.sv ?? -1) !== Number(user.sessionVersion || 0)) {
+      throw new UnauthorizedException('Session has been revoked');
+    }
     const path = (req.originalUrl || req.path).split('?')[0];
     const verificationPaths = [
       '/api/auth/me',

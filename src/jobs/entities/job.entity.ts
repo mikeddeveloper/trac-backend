@@ -118,6 +118,12 @@ export class Job {
   @Column({ default: false })
   otpVerified!: boolean;
 
+  @Column({ default: 0 })
+  otpFailedAttempts!: number;
+
+  @Column({ nullable: true, type: 'timestamp' })
+  otpLockedUntil!: Date;
+
   // ─── Customer Confirmation & Dispute ─────────────────────────────────────
   @Column({ default: false })
   customerConfirmed!: boolean;

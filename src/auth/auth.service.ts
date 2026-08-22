@@ -138,7 +138,8 @@ export class AuthService {
   }
 
   async generateTokens(userId: string, email: string, role: string) {
-    const payload = { sub: userId, email, role };
+    const tokenUser = await this.usersService.findById(userId);
+    const payload = { sub: userId, email, role, sv: Number(tokenUser.sessionVersion || 0) };
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {
@@ -162,7 +163,7 @@ export class AuthService {
     if (!refreshToken)
       throw new UnauthorizedException('Refresh token is required');
 
-    let payload: { sub: string; email: string; role: string };
+    let payload: { sub: string; email: string; role: string; sv?: number };
     try {
       payload = await this.jwtService.verifyAsync(refreshToken, {
         secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
@@ -173,6 +174,9 @@ export class AuthService {
 
     const user = await this.usersService.findById(payload.sub);
     if (user.isSuspended || !user.refreshToken) {
+      throw new UnauthorizedException('Session has been revoked');
+    }
+    if (Number(payload.sv ?? -1) !== Number(user.sessionVersion || 0)) {
       throw new UnauthorizedException('Session has been revoked');
     }
 
@@ -274,7 +278,7 @@ export class AuthService {
   }
 
   async logout(userId: string) {
-    await this.usersService.updateRefreshToken(userId, null);
+    await this.usersService.revokeSessions(userId);
     return { message: 'Logged out successfully' };
   }
 
@@ -391,6 +395,7 @@ export class AuthService {
       passwordResetToken: null,
       passwordResetExpiry: null,
     } as any);
+    await this.usersService.revokeSessions(user.id);
 
     return { message: 'Password reset successfully. You can now log in.' };
   }
@@ -414,7 +419,7 @@ export class AuthService {
 
     const hashed = await bcrypt.hash(newPassword, 10);
     await this.usersService.updateProfile(userId, { password: hashed } as any);
-    await this.usersService.updateRefreshToken(userId, null);
+    await this.usersService.revokeSessions(userId);
 
     return { message: 'Password updated successfully' };
   }

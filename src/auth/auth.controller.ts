@@ -47,6 +47,7 @@ export class AuthController {
 
   @Post('change-password')
   @UseGuards(AuthGuard('jwt'))
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   async changePassword(
     @Request() req: any,
     @Body() body: { currentPassword: string; newPassword: string },
@@ -88,12 +89,14 @@ export class AuthController {
   }
 
   @Post('reset-password')
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   async resetPassword(@Body() body: { token: string; newPassword: string }) {
     return this.authService.resetPassword(body.token, body.newPassword);
   }
 
   @Post('verify-email')
   @UseGuards(AuthGuard('jwt'))
+  @Throttle({ default: { limit: 8, ttl: 60000 } })
   async verifyEmail(@Request() req: any, @Body() body: { otp: string }) {
     return this.authService.verifyEmailOtp(req.user.id, body.otp);
   }

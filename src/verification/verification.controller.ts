@@ -8,6 +8,7 @@ import { Throttle } from '@nestjs/throttler';
 import { memoryStorage } from 'multer';
 import { v2 as cloudinary } from 'cloudinary';
 import { VerificationService } from './verification.service';
+import { detectSafeImage } from '../common/security/image-signature';
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -82,6 +83,7 @@ export class VerificationController {
   }))
   async uploadLicensePhoto(@Request() req: any, @UploadedFile() file: Express.Multer.File) {
     if (!file) throw new BadRequestException('No file uploaded');
+    if (!detectSafeImage(file.buffer)) throw new BadRequestException('The uploaded file is not a valid JPEG, PNG, or WebP image');
     const publicId = `license-${req.user?.id}-${Date.now()}`;
     const licensePhotoUrl = await uploadToCloudinary(file.buffer, publicId);
     return { licensePhotoUrl };

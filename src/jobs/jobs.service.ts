@@ -9,6 +9,7 @@ import {
   ServiceUnavailableException,
   Logger,
 } from '@nestjs/common';
+import { randomInt } from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { Job, JobStatus } from './entities/job.entity';
@@ -251,12 +252,14 @@ export class JobsService {
 
     // Auto-generate delivery PIN when transporter goes in-transit
     if (newStatus === JobStatus.IN_TRANSIT && !job.deliveryOtp) {
-      const pin = Math.floor(1000 + Math.random() * 9000).toString();
+      const pin = randomInt(1000, 10000).toString();
       await this.jobRepo.update(jobId, {
         status: newStatus,
         pickedUpAt: new Date(),
         deliveryOtp: pin,
         otpGeneratedAt: new Date(),
+        otpFailedAttempts: 0,
+        otpLockedUntil: null as any,
       });
       if (job.customerId) {
         this.eventsGateway.notifyUser(job.customerId, 'otp:generated', {
@@ -381,9 +384,12 @@ export class JobsService {
     if (job.status !== JobStatus.IN_TRANSIT) {
       throw new BadRequestException('Job must be in-transit to generate PIN');
     }
+    if (job.otpGeneratedAt && Date.now() - new Date(job.otpGeneratedAt).getTime() < 60_000) {
+      throw new BadRequestException('Please wait before generating another delivery PIN');
+    }
 
-    const pin = Math.floor(1000 + Math.random() * 9000).toString();
-    await this.jobRepo.update(jobId, { deliveryOtp: pin, otpGeneratedAt: new Date() });
+    const pin = randomInt(1000, 10000).toString();
+    await this.jobRepo.update(jobId, { deliveryOtp: pin, otpGeneratedAt: new Date(), otpFailedAttempts: 0, otpLockedUntil: null as any });
 
     // PIN goes to CUSTOMER only — transporter asks customer for it verbally at delivery
     if (job.customerId) {
@@ -421,11 +427,24 @@ export class JobsService {
     if (job.status !== JobStatus.IN_TRANSIT) {
       throw new BadRequestException('Job must be in-transit to verify PIN');
     }
+    if (job.otpVerified) return { verified: true, message: 'PIN was already verified' };
+    if (!job.otpGeneratedAt || Date.now() - new Date(job.otpGeneratedAt).getTime() > 24 * 60 * 60 * 1000) {
+      throw new BadRequestException('Delivery PIN has expired. Generate a new PIN.');
+    }
+    if (job.otpLockedUntil && new Date(job.otpLockedUntil).getTime() > Date.now()) {
+      throw new BadRequestException('Too many incorrect attempts. Try again later.');
+    }
+    if (!/^\d{4}$/.test(String(otp || ''))) throw new BadRequestException('PIN must contain exactly 4 digits');
     if (otp !== job.deliveryOtp) {
+      const attempts = Number(job.otpFailedAttempts || 0) + 1;
+      await this.jobRepo.update(jobId, {
+        otpFailedAttempts: attempts,
+        otpLockedUntil: attempts >= 5 ? new Date(Date.now() + 15 * 60 * 1000) : null as any,
+      });
       throw new BadRequestException('Invalid PIN. Please try again.');
     }
 
-    await this.jobRepo.update(jobId, { otpVerified: true });
+    await this.jobRepo.update(jobId, { otpVerified: true, deliveryOtp: null as any, otpFailedAttempts: 0, otpLockedUntil: null as any });
 
     if (job.customerId) {
       this.eventsGateway.notifyUser(job.customerId, 'otp:verified', {
@@ -444,7 +463,7 @@ export class JobsService {
     transporterId: string,
     fileBuffer: Buffer,
     mimeType: string,
-    originalName: string,
+    _originalName: string,
   ): Promise<Job> {
     const job = await this.getJobById(jobId);
 
@@ -458,7 +477,7 @@ export class JobsService {
     let proofUrl: string;
 
     if (this.supabase) {
-      const ext = originalName.split('.').pop() || 'jpg';
+      const ext = ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' } as Record<string, string>)[mimeType] || 'jpg';
       const fileName = `proof-${jobId}-${Date.now()}.${ext}`;
 
       const { error } = await this.supabase.storage

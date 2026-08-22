@@ -1,7 +1,7 @@
 // trac-backend/src/waybill/waybill.service.ts
 // Waybill PDF Generator using PDFKit
 
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Job } from '../jobs/entities/job.entity';
@@ -16,13 +16,16 @@ export class WaybillService {
     private jobRepo: Repository<Job>,
   ) {}
 
-  async generateWaybill(jobId: string): Promise<Buffer> {
+  async generateWaybill(jobId: string, userId: string, role: string): Promise<Buffer> {
     const job = await this.jobRepo.findOne({
       where: { id: jobId },
       relations: ['customer', 'transporter'],
     });
 
     if (!job) throw new NotFoundException('Job not found');
+    if (role !== 'admin' && ![job.customerId, job.transporterId].includes(userId)) {
+      throw new ForbiddenException('You are not authorized to access this waybill');
+    }
 
     return new Promise((resolve, reject) => {
       const doc = new PDFDocument({ size: 'A4', margin: 50 });

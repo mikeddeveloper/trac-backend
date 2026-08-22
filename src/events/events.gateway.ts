@@ -52,6 +52,7 @@ export class EventsGateway
   private socketUserMap = new Map<string, string>();
   private jobLocationMap = new Map<string, { lat: number; lng: number; accuracy?: number; speed?: number; updatedAt: Date }>();
   private pendingNotifications = new Map<string, Array<{ event: string; data: any }>>();
+  private lastLocationUpdate = new Map<string, number>();
 
   constructor(
     private jwtService: JwtService,
@@ -105,6 +106,9 @@ export class EventsGateway
       this.userSocketMap.delete(userId);
       this.socketUserMap.delete(client.id);
       this.logger.log(`❌ User ${userId} disconnected`);
+      for (const key of this.lastLocationUpdate.keys()) {
+        if (key.startsWith(`${userId}:`)) this.lastLocationUpdate.delete(key);
+      }
     }
   }
 
@@ -159,6 +163,13 @@ export class EventsGateway
       return { ok: false, error: 'Live location is only available for paid, in-transit jobs' };
     }
 
+    const rateKey = `${client.data.userId}:${jobId}`;
+    const now = Date.now();
+    if (now - (this.lastLocationUpdate.get(rateKey) || 0) < 3000) {
+      return { ok: false, error: 'Location updates are limited to one every 3 seconds' };
+    }
+    this.lastLocationUpdate.set(rateKey, now);
+
     const updatedAt = new Date();
     const location = {
       lat,
@@ -175,7 +186,7 @@ export class EventsGateway
       lastLocationSpeed: location.speed ?? null as any,
       lastLocationAt: updatedAt,
     });
-    this.logger.log(`📍 Location update job ${jobId}: ${lat}, ${lng}`);
+    if (process.env.NODE_ENV !== 'production') this.logger.debug(`Location updated for job ${jobId}`);
     this.notifyUser(job.customerId, 'job:locationUpdate', { jobId, ...location });
     return { ok: true };
   }

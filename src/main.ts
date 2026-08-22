@@ -39,7 +39,14 @@ async function bootstrap() {
   // ── Security headers ───────────────────────────────────────────────────────
   app.use(helmet({
     crossOriginResourcePolicy: { policy: 'cross-origin' },
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+        baseUri: ["'none'"],
+        formAction: ["'none'"],
+      },
+    },
     hsts: { maxAge: 31536000, includeSubDomains: true },
   }));
 

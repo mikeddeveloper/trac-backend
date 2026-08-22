@@ -66,6 +66,11 @@ export class UsersService {
     await this.usersRepo.update(userId, { isActive: false } as any);
   }
 
+  async revokeSessions(id: string): Promise<void> {
+    await this.usersRepo.increment({ id }, 'sessionVersion', 1);
+    await this.updateRefreshToken(id, null);
+  }
+
   private async ensurePreferencesTable(): Promise<void> {
     await this.usersRepo.query(`
       CREATE TABLE IF NOT EXISTS user_preferences (

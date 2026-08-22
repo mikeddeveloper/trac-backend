@@ -93,6 +93,9 @@ export class User {
   @Column({ nullable: true })
   refreshToken!: string;
 
+  @Column({ default: 0 })
+  sessionVersion!: number;
+
   @Column({ nullable: true })
   passwordResetToken!: string;
 

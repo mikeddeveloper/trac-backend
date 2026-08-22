@@ -8,10 +8,11 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthGuard } from '@nestjs/passport';
 import { UsersService } from './users.service';
-import { diskStorage } from 'multer';
-import { extname, join } from 'path';
+import { memoryStorage } from 'multer';
+import { join } from 'path';
 import * as fs from 'fs';
 import * as bcrypt from 'bcrypt';
+import { detectSafeImage, extensionForImage } from '../common/security/image-signature';
 
 @Controller('users')
 export class UsersController {
@@ -83,17 +84,7 @@ export class UsersController {
   @Patch('profile/avatar')
   @UseGuards(AuthGuard('jwt'))
   @UseInterceptors(FileInterceptor('avatar', {
-    storage: diskStorage({
-      destination: (_req, _file, cb) => {
-        const dir = join(process.cwd(), 'uploads', 'avatars');
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        cb(null, dir);
-      },
-      filename: (req: any, file, cb) => {
-        const ext = extname(file.originalname);
-        cb(null, `${req.user.id}_${Date.now()}${ext}`);
-      },
-    }),
+    storage: memoryStorage(),
     limits: { fileSize: 5 * 1024 * 1024 },
     fileFilter: (_req, file, cb) => {
       if (file.mimetype.startsWith('image/')) cb(null, true);
@@ -102,8 +93,14 @@ export class UsersController {
   }))
   async uploadAvatar(@Request() req: any, @UploadedFile() file: Express.Multer.File) {
     if (!file) throw new BadRequestException('No file uploaded');
+    const mime = detectSafeImage(file.buffer);
+    if (!mime) throw new BadRequestException('The uploaded file is not a valid JPEG, PNG, or WebP image');
+    const dir = join(process.cwd(), 'uploads', 'avatars');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const filename = `${req.user.id}_${Date.now()}${extensionForImage(mime)}`;
+    fs.writeFileSync(join(dir, filename), file.buffer, { flag: 'wx' });
     const baseUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3001}`;
-    const avatarUrl = `${baseUrl}/uploads/avatars/${file.filename}`;
+    const avatarUrl = `${baseUrl}/uploads/avatars/${filename}`;
     await this.usersService.updateProfile(req.user.id, { avatarUrl } as any);
     return { avatarUrl };
   }
