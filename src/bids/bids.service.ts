@@ -48,6 +48,18 @@ export class BidsService {
       throw new BadRequestException('This job is no longer accepting bids');
     }
 
+    const normalizeVehicle = (value?: string) => {
+      const normalized = String(value || '').trim().toLowerCase();
+      return normalized === 'bike' || normalized === 'motorcycle' ? 'rider' : normalized;
+    };
+    if (transporter.vehicleType && normalizeVehicle(transporter.vehicleType) !== normalizeVehicle(job.vehicleType)) {
+      throw new BadRequestException('This job requires a different vehicle type');
+    }
+    if (transporter.state && job.pickupState
+      && transporter.state.trim().toLowerCase() !== job.pickupState.trim().toLowerCase()) {
+      throw new BadRequestException('This pickup is outside your registered operating state');
+    }
+
     const existing = await this.bidsRepo.findOne({ where: { jobId, transporterId } });
     if (existing) throw new BadRequestException('You have already bid on this job');
 
