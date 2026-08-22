@@ -83,6 +83,15 @@ export class JobsController {
     return this.jobsService.toClientJob(job, includeDetails, includeOtp);
   }
 
+  @Post(':id/location')
+  async updateLocation(
+    @Param('id') id: string,
+    @Req() req: any,
+    @Body() body: { lat: number; lng: number; accuracy?: number; speed?: number },
+  ) {
+    return this.jobsService.updateTransporterLocation(id, req.user.id, body);
+  }
+
   // ─── PATCH /jobs/:id/status ────────────────────────────────────────────────
   @Patch(':id/status')
   async updateStatus(

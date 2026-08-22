@@ -144,6 +144,38 @@ export class JobsService {
     return job;
   }
 
+  async updateTransporterLocation(
+    jobId: string,
+    transporterId: string,
+    data: { lat: number; lng: number; accuracy?: number; speed?: number },
+  ): Promise<{ ok: true; updatedAt: Date }> {
+    const lat = Number(data.lat);
+    const lng = Number(data.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+      throw new BadRequestException('Invalid location coordinates');
+    }
+    const job = await this.getJobById(jobId);
+    if (job.transporterId !== transporterId) throw new ForbiddenException('You are not assigned to this job');
+    if (job.status !== JobStatus.IN_TRANSIT) throw new BadRequestException('Job must be in transit to share location');
+    const updatedAt = new Date();
+    const accuracy = Number(data.accuracy);
+    const speed = Number(data.speed);
+    await this.jobRepo.update(jobId, {
+      lastKnownLat: lat,
+      lastKnownLng: lng,
+      lastLocationAccuracy: Number.isFinite(accuracy) ? accuracy : null as any,
+      lastLocationSpeed: Number.isFinite(speed) ? speed : null as any,
+      lastLocationAt: updatedAt,
+    });
+    this.eventsGateway.notifyUser(job.customerId, 'job:locationUpdate', {
+      jobId, lat, lng,
+      accuracy: Number.isFinite(accuracy) ? accuracy : undefined,
+      speed: Number.isFinite(speed) ? speed : undefined,
+      updatedAt,
+    });
+    return { ok: true, updatedAt };
+  }
+
   toClientJob(job: Job, includeDeliveryDetails = false, includeDeliveryOtp = includeDeliveryDetails): Record<string, any> {
     const safeParty = (user?: User) => user ? {
       id: user.id,
