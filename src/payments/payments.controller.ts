@@ -108,14 +108,6 @@ export class PaymentsController {
     return { recipientCode: code };
   }
 
-  // ─── POST /payments/simulate-release ────────────────────────────────────────
-  @Post('simulate-release')
-  @UseGuards(AuthGuard('jwt'))
-  async simulateRelease(@Req() req: any) {
-    if (req.user.role !== 'transporter') throw new ForbiddenException('Transporter access required');
-    return this.paymentsService.simulateRelease(req.user.id);
-  }
-
   // ─── POST /payments/release/:jobId ───────────────────────────────────────────
   // Customer confirms delivery — marks payment as available for transporter withdrawal
   @Post('release/:jobId')

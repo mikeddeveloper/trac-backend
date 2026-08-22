@@ -84,7 +84,7 @@ export class PaymentsService {
 
   private async activatePaidJob(payment: Payment): Promise<void> {
     const job = await this.jobRepo.findOne({ where: { id: payment.jobId } });
-    if (!job || !job.transporterId || [JobStatus.ACCEPTED, JobStatus.IN_TRANSIT, JobStatus.DELIVERED].includes(job.status)) return;
+    if (!job || !job.transporterId || [JobStatus.ACCEPTED, JobStatus.IN_TRANSIT, JobStatus.DELIVERED, JobStatus.CANCELLED].includes(job.status)) return;
     await this.jobRepo.update(job.id, { status: JobStatus.ACCEPTED });
     const payload = { jobId: job.id, previousStatus: job.status, newStatus: JobStatus.ACCEPTED, message: 'Payment confirmed. Delivery is ready for pickup.', updatedAt: new Date() };
     this.eventsGateway.notifyUser(job.customerId, 'job:statusUpdate', payload);
@@ -112,6 +112,13 @@ export class PaymentsService {
       this.eventsGateway.notifyUser(job.customerId, 'job:statusUpdate', { jobId: job.id, previousStatus: JobStatus.PAYMENT_PENDING, newStatus: JobStatus.BID_SELECTED, message: 'Payment was not completed. You can try again.', updatedAt: new Date() });
     }
     return { status: 'cancelled', jobId: payment.jobId };
+  }
+
+  async cancelPendingPaymentsForJob(jobId: string, customerId: string): Promise<void> {
+    await this.paymentRepo.update(
+      { jobId, customerId, type: PaymentType.ESCROW, status: PaymentStatus.PENDING },
+      { status: PaymentStatus.FAILED, authorizationUrl: null as any },
+    );
   }
 
   // ─── Initialize Payment ─────────────────────────────────────────────────────
@@ -690,44 +697,4 @@ export class PaymentsService {
     };
   }
 
-  // ─── Simulate Release (test mode only) ──────────────────────────────────────
-
-  async simulateRelease(transporterId: string): Promise<{ released: number; count: number }> {
-    if (this.configService.get('NODE_ENV') === 'production') {
-      throw new NotFoundException('Not found');
-    }
-    // Find all escrow-held payments for this transporter's jobs
-    const payments = await this.paymentRepo
-      .createQueryBuilder('payment')
-      .innerJoin('jobs', 'job', 'job.id = payment.jobId')
-      .where('job.transporterId = :transporterId', { transporterId })
-      .andWhere('payment.status IN (:...statuses)', {
-        statuses: [PaymentStatus.SUCCESS, PaymentStatus.HELD, PaymentStatus.PENDING],
-      })
-      .getMany();
-
-    if (payments.length === 0) return { released: 0, count: 0 };
-
-    let totalReleased = 0;
-
-    for (const payment of payments) {
-      await this.paymentRepo.update(payment.id, { status: PaymentStatus.RELEASED });
-      const payout = Number(payment.transporterPayout || payment.amount);
-      totalReleased += payout;
-
-      // Fire the same socket + push as a real transfer.success webhook
-      const amount = payout.toLocaleString('en-NG');
-      this.eventsGateway.notifyUser(transporterId, 'payment:released', {
-        amount: payout,
-        message: `₦${amount} has been released to your account.`,
-      });
-      await this.pushService.sendToUser(
-        transporterId,
-        this.pushService.templates.payoutReleased(amount),
-      ).catch(() => {});
-    }
-
-    this.logger.log(`🧪 [TEST] Simulated release of ₦${totalReleased} across ${payments.length} payment(s) for transporter ${transporterId}`);
-    return { released: totalReleased, count: payments.length };
-  }
 }

@@ -21,10 +21,10 @@ import { createClient } from '@supabase/supabase-js';
 import { ConfigService } from '@nestjs/config';
 
 const ALLOWED_TRANSITIONS: Record<JobStatus, JobStatus[]> = {
-  [JobStatus.PENDING]:    [JobStatus.BIDDING],
-  [JobStatus.BIDDING]:    [JobStatus.BID_SELECTED],
-  [JobStatus.BID_SELECTED]: [JobStatus.PAYMENT_PENDING, JobStatus.BIDDING],
-  [JobStatus.PAYMENT_PENDING]: [JobStatus.ACCEPTED, JobStatus.BID_SELECTED, JobStatus.BIDDING],
+  [JobStatus.PENDING]:    [JobStatus.BIDDING, JobStatus.CANCELLED],
+  [JobStatus.BIDDING]:    [JobStatus.BID_SELECTED, JobStatus.CANCELLED],
+  [JobStatus.BID_SELECTED]: [JobStatus.PAYMENT_PENDING, JobStatus.BIDDING, JobStatus.CANCELLED],
+  [JobStatus.PAYMENT_PENDING]: [JobStatus.ACCEPTED, JobStatus.BID_SELECTED, JobStatus.BIDDING, JobStatus.CANCELLED],
   [JobStatus.ACCEPTED]:   [JobStatus.IN_TRANSIT],
   [JobStatus.IN_TRANSIT]: [JobStatus.DELIVERED],
   [JobStatus.DELIVERED]:  [],
@@ -68,8 +68,10 @@ export class JobsService {
       throw new BadRequestException('Recipient name and phone number are required');
     }
     const cargoWeight = Number(dto.cargoWeight);
-    if (!Number.isFinite(cargoWeight) || cargoWeight < 0.5 || cargoWeight > 50) {
-      throw new BadRequestException('Cargo weight must be between 0.5 kg and 50 kg');
+    const vehicleLimits: Record<string, number> = { rider: 20, van: 500, 'truck-small': 2000, 'truck-medium': 5000, 'truck-large': 20000 };
+    const vehicleLimit = vehicleLimits[String(dto.vehicleType || '')];
+    if (!Number.isFinite(cargoWeight) || cargoWeight < 0.5 || !vehicleLimit || cargoWeight > vehicleLimit) {
+      throw new BadRequestException(vehicleLimit ? `Cargo weight must be between 0.5 kg and ${vehicleLimit.toLocaleString()} kg for this vehicle` : 'Select a valid vehicle type');
     }
     try {
       const rows = await this.jobRepo.query(
@@ -226,6 +228,10 @@ export class JobsService {
     }
     if (userRole === 'customer' && job.customerId !== userId) {
       throw new ForbiddenException('This is not your job');
+    }
+
+    if (newStatus === JobStatus.CANCELLED && job.status === JobStatus.PAYMENT_PENDING) {
+      await this.paymentsService.cancelPendingPaymentsForJob(jobId, userId);
     }
 
     if (newStatus === JobStatus.IN_TRANSIT) {
