@@ -79,7 +79,9 @@ export class VerificationController {
       if (file.mimetype.startsWith('image/')) cb(null, true);
       else cb(new BadRequestException('Only image files are allowed'), false);
     },
-    limits: { fileSize: 5 * 1024 * 1024 },
+    // Modern phone-camera images commonly exceed 5 MB. The web client
+    // compresses them first, while this limit leaves safe headroom.
+    limits: { fileSize: 12 * 1024 * 1024 },
   }))
   async uploadLicensePhoto(@Request() req: any, @UploadedFile() file: Express.Multer.File) {
     if (!file) throw new BadRequestException('No file uploaded');
