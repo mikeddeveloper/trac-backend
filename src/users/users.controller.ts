@@ -43,6 +43,7 @@ export class UsersController {
       bankName: user.bankName,
       accountNumber: user.accountNumber,
       accountName: user.accountName,
+      payoutConfigured: Boolean(user.recipientCode),
     };
   }
 

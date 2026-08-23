@@ -655,6 +655,7 @@ export class PaymentsService {
   // ─── Get transporter earnings ────────────────────────────────────────────────
 
   async getTransporterEarnings(transporterId: string) {
+    const transporter = await this.userRepo.findOne({ where: { id: transporterId } });
     const payments = await this.paymentRepo
       .createQueryBuilder('payment')
       .innerJoin('jobs', 'job', 'job.id = payment.jobId')
@@ -700,6 +701,7 @@ export class PaymentsService {
       })),
       totalCommissionPaid,
       totalJobs: payments.length,
+      payoutConfigured: Boolean(transporter?.recipientCode),
     };
   }
 
