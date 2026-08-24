@@ -15,9 +15,10 @@ import { EventsModule } from '../events/events.module';
 import { VerificationModule } from '../verification/verification.module';
 import { AdminGuard } from './admin.guard';
 import { EmailModule } from '../email/email.module';
+import { PaymentsModule } from '../payments/payments.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Job, Payment, Dispute, User, Rating]), PushModule, EventsModule, VerificationModule, EmailModule],
+  imports: [TypeOrmModule.forFeature([Job, Payment, Dispute, User, Rating]), PushModule, EventsModule, VerificationModule, EmailModule, PaymentsModule],
   controllers: [AdminController],
   providers: [AdminService, AdminGuard],
   exports: [AdminService],

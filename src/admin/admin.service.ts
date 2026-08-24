@@ -5,13 +5,14 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThanOrEqual } from 'typeorm';
 import { Job, JobStatus } from '../jobs/entities/job.entity';
-import { Payment, PaymentStatus } from '../payments/entities/payment.entity';
+import { Payment, PaymentStatus, PaymentType } from '../payments/entities/payment.entity';
 import { Dispute, DisputeStatus } from '../disputes/entities/dispute.entity';
 import { User } from '../users/entities/user.entity';
 import { Rating } from '../ratings/entities/rating.entity';
 import { PushService } from '../push/push.service';
 import { EventsGateway } from '../events/events.gateway';
 import { EmailService } from '../email/email.service';
+import { PaymentsService } from '../payments/payments.service';
 
 @Injectable()
 export class AdminService {
@@ -31,6 +32,7 @@ export class AdminService {
     private pushService: PushService,
     private eventsGateway: EventsGateway,
     private emailService: EmailService,
+    private paymentsService: PaymentsService,
   ) {}
 
   // ─── Platform overview ───────────────────────────────────────────────────────
@@ -615,25 +617,7 @@ export class AdminService {
   // ─── Refund payment (admin) ───────────────────────────────────────────────────
 
   async refundPayment(paymentId: string) {
-    const payment = await this.paymentRepo.findOne({ where: { id: paymentId } });
-    if (!payment) throw new Error('Payment not found');
-
-    await this.paymentRepo.update(paymentId, { status: 'refunded' as any });
-
-    const job = await this.jobRepo.findOne({ where: { id: (payment as any).jobId } });
-    if (job?.customerId) {
-      this.eventsGateway.notifyUser(job.customerId, 'payment:refunded', {
-        amount: payment.amount,
-        message: `Payment of ₦${Number(payment.amount).toLocaleString()} has been refunded to you.`,
-      });
-      await this.pushService.sendToUser(job.customerId, {
-        title: '💰 Payment Refunded!',
-        body: `₦${Number(payment.amount).toLocaleString()} has been refunded to your account.`,
-        icon: '/icon-192.png',
-      }).catch(() => {});
-    }
-
-    return { message: 'Payment refunded successfully' };
+    return this.paymentsService.initiateRefund(paymentId);
   }
 
   // ─── Revenue analytics ────────────────────────────────────────────────────────
@@ -1151,29 +1135,32 @@ export class AdminService {
     const dispute = await this.disputeRepo.findOne({ where: { id: disputeId } });
     if (!dispute) throw new Error('Dispute not found');
 
+    const job = dispute.jobId ? await this.jobRepo.findOne({ where: { id: dispute.jobId } }) : null;
+    const payment = job ? await this.paymentRepo.findOne({
+      where: { jobId: job.id, type: PaymentType.ESCROW } as any,
+      order: { createdAt: 'DESC' },
+    }) : null;
+    if (payment) {
+      await this.paymentsService.initiateRefund(payment.id, 'Dispute resolved in favour of customer');
+    }
+
     await this.disputeRepo.update(disputeId, {
       status: DisputeStatus.RESOLVED,
       resolutionNote: 'Ruled in favor of customer',
       resolvedAt: new Date(),
     });
 
-    const job = dispute.jobId ? await this.jobRepo.findOne({ where: { id: dispute.jobId } }) : null;
     if (job) {
       await this.jobRepo.update(job.id, { status: JobStatus.CANCELLED });
 
-      const payment = await this.paymentRepo.findOne({ where: { jobId: job.id } as any });
-      if (payment) {
-        await this.paymentRepo.update(payment.id, { status: 'refunded' } as any);
-      }
-
       if (job.customerId) {
         this.eventsGateway.notifyUser(job.customerId, 'dispute:resolved', {
-          message: 'Dispute resolved in your favor. Payment will be refunded.',
+          message: 'Dispute resolved in your favor. Your refund has been submitted for processing.',
           result: 'customer',
         });
         await this.pushService.sendToUser(job.customerId, {
           title: '✅ Dispute Resolved',
-          body: 'Dispute resolved in your favor. Your payment will be refunded.',
+          body: 'Dispute resolved in your favor. Your refund is being processed to your original payment method.',
           icon: '/icon-192.png',
         }).catch(() => {});
       }

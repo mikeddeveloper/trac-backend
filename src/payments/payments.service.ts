@@ -289,7 +289,134 @@ export class PaymentsService {
       case 'transfer.reversed':
         await this.handleTransferFailure(event.data, event.event);
         break;
+      case 'refund.pending':
+      case 'refund.processing':
+      case 'refund.needs-attention':
+      case 'refund.processed':
+      case 'refund.failed':
+        await this.handleRefundEvent(event.data, event.event);
+        break;
     }
+  }
+
+  async initiateRefund(paymentId: string, reason = 'Refund approved by Trac support'): Promise<{ message: string; status: string }> {
+    const payment = await this.paymentRepo.findOne({ where: { id: paymentId } });
+    if (!payment) throw new NotFoundException('Payment not found');
+    if (payment.type !== PaymentType.ESCROW) throw new BadRequestException('Only the original escrow payment can be refunded');
+    if (payment.status === PaymentStatus.REFUNDED) return { message: 'Payment has already been refunded', status: 'refunded' };
+    if (payment.status === PaymentStatus.RELEASED) throw new BadRequestException('Payment has already been released to the transporter');
+    if (![PaymentStatus.SUCCESS, PaymentStatus.HELD].includes(payment.status)) {
+      throw new BadRequestException('Only a confirmed payment can be refunded');
+    }
+
+    const existing = await this.paymentRepo.findOne({
+      where: { jobId: payment.jobId, type: PaymentType.REFUND },
+      order: { createdAt: 'DESC' },
+    });
+    if (existing && existing.status !== PaymentStatus.FAILED) {
+      return {
+        message: existing.status === PaymentStatus.REFUNDED ? 'Payment has already been refunded' : 'Refund is already being processed',
+        status: existing.status === PaymentStatus.REFUNDED ? 'refunded' : 'pending',
+      };
+    }
+
+    const refund = this.paymentRepo.create({
+      reference: `REFUND-${payment.reference}-${Date.now()}`,
+      amount: Number(payment.amount),
+      currency: payment.currency,
+      status: PaymentStatus.PENDING,
+      type: PaymentType.REFUND,
+      customerId: payment.customerId,
+      jobId: payment.jobId,
+      paystackMeta: { originalReference: payment.reference, reason },
+    });
+    await this.paymentRepo.save(refund);
+
+    try {
+      const response = await axios.post(
+        `${this.paystackUrl}/refund`,
+        {
+          transaction: payment.reference,
+          customer_note: reason,
+          merchant_note: `Trac refund for job ${payment.jobId}`,
+        },
+        { headers: this.headers },
+      );
+      if (response.data?.status !== true) throw new Error(response.data?.message || 'Paystack rejected the refund');
+
+      const paystackStatus = String(response.data?.data?.status || 'pending');
+      const completed = paystackStatus === 'processed';
+      await this.paymentRepo.update(refund.id, {
+        status: completed ? PaymentStatus.REFUNDED : PaymentStatus.PENDING,
+        paystackMeta: { ...refund.paystackMeta, ...response.data.data },
+      });
+      if (completed) await this.completeRefund(payment, response.data.data);
+
+      return {
+        message: completed ? 'Refund completed successfully' : 'Refund submitted to Paystack and is being processed',
+        status: completed ? 'refunded' : 'pending',
+      };
+    } catch (error) {
+      await this.paymentRepo.update(refund.id, {
+        status: PaymentStatus.FAILED,
+        paystackMeta: { ...refund.paystackMeta, error: (error as any)?.response?.data || (error as any)?.message },
+      });
+      const message = (error as any)?.response?.data?.message || (error as any)?.message || 'Refund could not be initiated';
+      this.logger.error(`Refund initiation failed for ${payment.reference}: ${message}`);
+      throw new BadRequestException(`Refund failed: ${message}`);
+    }
+  }
+
+  private async handleRefundEvent(data: any, eventName: string): Promise<void> {
+    const originalReference = data.transaction_reference || data.transaction?.reference;
+    if (!originalReference) return;
+    const payment = await this.paymentRepo.findOne({ where: { reference: originalReference, type: PaymentType.ESCROW } });
+    if (!payment) {
+      this.logger.warn(`Ignoring ${eventName} for unknown transaction ${originalReference}`);
+      return;
+    }
+    const refund = await this.paymentRepo.findOne({
+      where: { jobId: payment.jobId, type: PaymentType.REFUND },
+      order: { createdAt: 'DESC' },
+    });
+    if (!refund) {
+      this.logger.warn(`Ignoring ${eventName}; no local refund exists for ${originalReference}`);
+      return;
+    }
+
+    if (eventName === 'refund.processed') {
+      await this.paymentRepo.update(refund.id, { status: PaymentStatus.REFUNDED, paystackMeta: data });
+      await this.completeRefund(payment, data);
+    } else if (eventName === 'refund.failed') {
+      await this.paymentRepo.update(refund.id, { status: PaymentStatus.FAILED, paystackMeta: data });
+      if (payment.customerId) {
+        this.eventsGateway.notifyUser(payment.customerId, 'payment:refundFailed', {
+          amount: payment.amount,
+          message: 'Your refund could not be processed. Trac support has been notified.',
+        });
+      }
+    } else {
+      await this.paymentRepo.update(refund.id, { status: PaymentStatus.PENDING, paystackMeta: data });
+    }
+  }
+
+  private async completeRefund(payment: Payment, paystackMeta: any): Promise<void> {
+    if (payment.status === PaymentStatus.REFUNDED) return;
+    await this.paymentRepo.update(payment.id, { status: PaymentStatus.REFUNDED });
+    if (!payment.customerId) return;
+    const amount = Number(payment.amount).toLocaleString('en-NG');
+    this.eventsGateway.notifyUser(payment.customerId, 'payment:refunded', {
+      amount: payment.amount,
+      reference: paystackMeta?.refund_reference || paystackMeta?.id,
+      message: `Your refund of ₦${amount} has been processed to your original payment method.`,
+    });
+    await this.pushService.sendToUser(payment.customerId, {
+      title: 'Refund processed',
+      body: `Your ₦${amount} refund has been processed. Your bank may take several business days to reflect it.`,
+      url: '/dashboard/payments',
+      tag: 'payment-refunded',
+      icon: '/icons/icon-192x192.png',
+    }).catch(() => {});
   }
 
   private async handleChargeSuccess(data: any): Promise<void> {

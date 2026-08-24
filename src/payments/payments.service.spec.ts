@@ -2,6 +2,7 @@ import axios from 'axios';
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { JobStatus } from '../jobs/entities/job.entity';
 import { PaymentsService } from './payments.service';
+import { PaymentStatus, PaymentType } from './entities/payment.entity';
 
 jest.mock('axios');
 const mockedAxios = axios as jest.Mocked<typeof axios>;
@@ -106,5 +107,53 @@ describe('PaymentsService launch protections', () => {
     );
     expect(paymentRepo.save.mock.invocationCallOrder[0])
       .toBeLessThan(mockedAxios.post.mock.invocationCallOrder[0]);
+  });
+
+  it('submits a full refund to Paystack without marking escrow refunded prematurely', async () => {
+    const escrowPayment = {
+      id: 'payment-1',
+      reference: 'TRAC-job-1-123',
+      jobId: job.id,
+      customerId: job.customerId,
+      amount: 125000,
+      currency: 'NGN',
+      status: PaymentStatus.HELD,
+      type: PaymentType.ESCROW,
+    };
+    paymentRepo.findOne
+      .mockResolvedValueOnce(escrowPayment)
+      .mockResolvedValueOnce(null);
+    mockedAxios.post.mockResolvedValue({
+      data: { status: true, message: 'Refund queued', data: { id: 99, status: 'pending' } },
+    });
+
+    const result = await service.initiateRefund(escrowPayment.id);
+
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect.stringContaining('/refund'),
+      expect.objectContaining({ transaction: escrowPayment.reference }),
+      expect.any(Object),
+    );
+    expect(paymentRepo.save).toHaveBeenCalledWith(expect.objectContaining({
+      type: PaymentType.REFUND,
+      status: PaymentStatus.PENDING,
+      jobId: job.id,
+    }));
+    expect(paymentRepo.update).not.toHaveBeenCalledWith(
+      escrowPayment.id,
+      expect.objectContaining({ status: PaymentStatus.REFUNDED }),
+    );
+    expect(result.status).toBe('pending');
+  });
+
+  it('rejects refunds after escrow has been released', async () => {
+    paymentRepo.findOne.mockResolvedValueOnce({
+      id: 'payment-1',
+      status: PaymentStatus.RELEASED,
+      type: PaymentType.ESCROW,
+    });
+
+    await expect(service.initiateRefund('payment-1')).rejects.toBeInstanceOf(BadRequestException);
+    expect(mockedAxios.post).not.toHaveBeenCalled();
   });
 });
