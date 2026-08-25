@@ -961,6 +961,30 @@ export class AdminService {
     return this.assignAdminRole(requesterId, target.email, adminRole);
   }
 
+  async restoreAdminAsTransporter(requesterId: string, targetId: string) {
+    const requester = await this.userRepo.findOne({ where: { id: requesterId } });
+    const requesterRoleRows = await this.userRepo.query(
+      "SELECT value FROM platform_settings WHERE key = $1 LIMIT 1",
+      [`adminRole:${requesterId}`],
+    );
+    const requesterAdminRole = requesterRoleRows[0]?.value ? String(requesterRoleRows[0].value) : 'super_admin';
+    if (!requester || requester.role !== UserRole.ADMIN || requesterAdminRole !== 'super_admin') {
+      throw new ForbiddenException('Only a super administrator can remove administrator access');
+    }
+    const target = await this.userRepo.findOne({ where: { id: targetId } });
+    if (!target || target.role !== UserRole.ADMIN) throw new NotFoundException('Administrator account not found');
+    await this.userRepo.update(target.id, {
+      role: UserRole.TRANSPORTER,
+      isVerified: true,
+      kycStatus: 'approved',
+      kycTier: 1,
+      isSuspended: false,
+      sessionVersion: Number(target.sessionVersion || 0) + 1,
+    } as any);
+    await this.userRepo.query('DELETE FROM platform_settings WHERE key = $1', [`adminRole:${target.id}`]);
+    return { message: `${target.fullName} has been restored as a transporter and must sign in again` };
+  }
+
   // ─── Revoke verification ──────────────────────────────────────────────────────
 
   async revokeVerification(userId: string) {
