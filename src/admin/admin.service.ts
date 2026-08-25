@@ -156,6 +156,8 @@ export class AdminService {
   // ─── Get all users (paginated) ───────────────────────────────────────────────
 
   async getAllUsers(role?: string, search?: string, page = 1, limit = 10) {
+    page = Math.max(1, Math.floor(page));
+    limit = Math.min(100, Math.max(1, Math.floor(limit)));
     const query = this.userRepo.createQueryBuilder('user');
 
     if (role) {
@@ -172,7 +174,11 @@ export class AdminService {
     query.orderBy('user.createdAt', 'DESC');
     query.skip((page - 1) * limit).take(limit);
 
-    const [users, total] = await query.getManyAndCount();
+    const [[users, total], allCount, customerCount, transporterCount] = await Promise.all([
+      query.getManyAndCount(), this.userRepo.count(),
+      this.userRepo.count({ where: { role: UserRole.CUSTOMER } }),
+      this.userRepo.count({ where: { role: UserRole.TRANSPORTER } }),
+    ]);
 
     return {
       users: users.map(u => ({
@@ -200,6 +206,7 @@ export class AdminService {
       total,
       page,
       totalPages: Math.ceil(total / limit),
+      counts: { all: allCount, customer: customerCount, transporter: transporterCount },
     };
   }
 
@@ -737,21 +744,27 @@ export class AdminService {
 
     return [
       ...recentJobs.map(j => ({
+        id: `job-${j.id}`,
         type: 'new_job',
         description: `New job posted: ${j.pickupState} → ${j.deliveryState}`,
         timestamp: j.createdAt,
+        createdAt: j.createdAt,
         userId: j.customerId,
       })),
       ...recentUsers.map(u => ({
+        id: `user-${u.id}`,
         type: 'new_user',
         description: `New ${u.role} signed up: ${u.fullName}`,
         timestamp: u.createdAt,
+        createdAt: u.createdAt,
         userId: u.id,
       })),
       ...recentPayments.map(p => ({
+        id: `payment-${p.id}`,
         type: 'payment',
         description: `Payment of ₦${Number(p.amount).toLocaleString()} confirmed`,
         timestamp: p.createdAt,
+        createdAt: p.createdAt,
         userId: (p as any).customerId,
       })),
     ]
