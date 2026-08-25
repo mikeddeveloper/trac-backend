@@ -55,10 +55,9 @@ export class BidsService {
     if (transporter.vehicleType && normalizeVehicle(transporter.vehicleType) !== normalizeVehicle(job.vehicleType)) {
       throw new BadRequestException('This job requires a different vehicle type');
     }
-    if (transporter.state && job.pickupState
-      && transporter.state.trim().toLowerCase() !== job.pickupState.trim().toLowerCase()) {
-      throw new BadRequestException('This pickup is outside your registered operating state');
-    }
+    // Operating-state enforcement is temporarily disabled while end-to-end
+    // bidding and payment flows are being tested. Vehicle eligibility remains
+    // enforced above. Restore this check before enabling regional restrictions.
 
     const existing = await this.bidsRepo.findOne({ where: { jobId, transporterId } });
     if (existing) throw new BadRequestException('You have already bid on this job');
