@@ -569,24 +569,23 @@ export class JobsService {
       customerConfirmedAt: new Date(),
     });
 
-    // Notify transporter
+    // Customer confirmation completes the delivery, but the escrow remains
+    // locked until an admin reviews the proof and approves withdrawal. The
+    // 24-hour scheduler remains the fallback when no admin is available.
     if (job.transporterId) {
-      this.eventsGateway.notifyUser(job.transporterId, 'payment:released', {
+      this.eventsGateway.notifyUser(job.transporterId, 'payment:approvalPending', {
         jobId,
-        message: 'Customer confirmed receipt! Your payment is now available to withdraw.',
+        message: 'Customer confirmed receipt. Your payment is awaiting withdrawal approval.',
       });
       await this.pushService.sendToUser(job.transporterId, {
-        title: '✅ Payment Available!',
-        body: 'Customer confirmed delivery. Go to Earnings to withdraw your payment.',
+        title: 'Delivery confirmed',
+        body: 'Your payment is awaiting withdrawal approval. We will notify you when it is available.',
         url: '/dashboard/earnings',
-        tag: 'payment-released',
+        tag: 'payment-approval-pending',
       }).catch(() => {});
     }
 
-    // Release escrow
-    await this.paymentsService.releaseEscrow(jobId);
-
-    return { message: 'Receipt confirmed. Payment released to transporter.' };
+    return { message: 'Receipt confirmed. Payment is awaiting withdrawal approval.' };
   }
 
   // ─── Raise Dispute ────────────────────────────────────────────────────────

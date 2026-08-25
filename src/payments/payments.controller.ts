@@ -121,11 +121,11 @@ export class PaymentsController {
   }
 
   // ─── POST /payments/release/:jobId ───────────────────────────────────────────
-  // Customer confirms delivery — marks payment as available for transporter withdrawal
+  // Legacy customer release endpoint. Withdrawal approval now belongs to admin.
   @Post('release/:jobId')
   @UseGuards(AuthGuard('jwt'))
   async releaseEscrow(@Param('jobId') jobId: string, @Req() req: any) {
-    return this.paymentsService.releaseEscrow(jobId, req.user.id);
+    throw new ForbiddenException('Withdrawal must be approved from the admin dashboard');
   }
 
   // ─── POST /payments/withdraw/:jobId ──────────────────────────────────────────
