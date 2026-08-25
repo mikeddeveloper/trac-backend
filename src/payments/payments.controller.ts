@@ -45,7 +45,7 @@ export class PaymentsController {
   @Get('payout/:amount')
   @UseGuards(AuthGuard('jwt'))
   async calculatePayout(@Param('amount') amount: string) {
-    return this.paymentsService.calculatePayout(Number(amount));
+    return this.paymentsService.calculateConfiguredPayout(Number(amount));
   }
 
   // ─── GET /payments/transactions ─────────────────────────────────────────────

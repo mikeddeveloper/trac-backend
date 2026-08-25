@@ -55,6 +55,20 @@ export class PaymentsService {
     };
   }
 
+  private async configuredCommissionRate(): Promise<number | undefined> {
+    try {
+      const rows = await this.paymentRepo.query(
+        "SELECT value FROM platform_settings WHERE key = 'commissionRate' LIMIT 1",
+      );
+      const percentage = Number(rows[0]?.value);
+      return Number.isFinite(percentage) && percentage >= 0 && percentage <= 100
+        ? percentage / 100
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   private async getAvailablePaystackBalanceKobo(): Promise<number> {
     try {
       const response = await axios.get(`${this.paystackUrl}/balance`, { headers: this.headers });
@@ -157,7 +171,8 @@ export class PaymentsService {
     const amount = Number(job.acceptedAmount);
     const currency = 'NGN';
     const reference  = `TRAC-${jobId}-${Date.now()}`;
-    const breakdown  = this.calculatePayout(amount, job.distanceKm ? Number(job.distanceKm) : undefined);
+    const configuredRate = await this.configuredCommissionRate();
+    const breakdown  = this.calculatePayout(amount, job.distanceKm ? Number(job.distanceKm) : undefined, configuredRate);
     // VAT is 7.5% on Trac's commission only — borne by Trac, not added to customer's bill
     const vatAmount  = breakdown.vatOnCommission;
     // Customer pays the agreed delivery amount only
@@ -744,14 +759,18 @@ export class PaymentsService {
 
   // ─── Commission Calculator ───────────────────────────────────────────────────
 
-  calculatePayout(totalAmount: number, distanceKm?: number) {
-    const rate              = this.commissionRate(distanceKm);
+  calculatePayout(totalAmount: number, distanceKm?: number, configuredRate?: number) {
+    const rate              = configuredRate ?? this.commissionRate(distanceKm);
     const tracCommission    = +(totalAmount * rate).toFixed(2);
     const vatOnCommission   = +(tracCommission * this.VAT_RATE).toFixed(2);
     const transporterPayout = +(totalAmount * (1 - rate)).toFixed(2);
     const customerCashback  = totalAmount >= this.CASHBACK_MIN
       ? +(totalAmount * this.CASHBACK_RATE).toFixed(2) : 0;
     return { total: totalAmount, tracCommission, vatOnCommission, transporterPayout, customerCashback, commissionRate: rate };
+  }
+
+  async calculateConfiguredPayout(totalAmount: number, distanceKm?: number) {
+    return this.calculatePayout(totalAmount, distanceKm, await this.configuredCommissionRate());
   }
 
   // ─── Get transactions ────────────────────────────────────────────────────────

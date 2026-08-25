@@ -76,16 +76,18 @@ export class JobsService {
     if (!validVehicleTypes.has(String(dto.vehicleType || ''))) {
       throw new BadRequestException('Select a valid vehicle type');
     }
-    try {
-      const rows = await this.jobRepo.query(
-        "SELECT value FROM platform_settings WHERE key = 'maintenanceMode' LIMIT 1",
-      );
-      if (rows[0]?.value === true || rows[0]?.value === 'true') {
-        throw new ServiceUnavailableException('New bookings are temporarily paused for maintenance');
-      }
-    } catch (error) {
-      if (error instanceof ServiceUnavailableException) throw error;
-      // The settings table is created when admin settings are first opened.
+    await this.jobRepo.query(`
+      CREATE TABLE IF NOT EXISTS platform_settings (
+        key varchar(80) PRIMARY KEY,
+        value jsonb NOT NULL,
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+    const rows = await this.jobRepo.query(
+      "SELECT value FROM platform_settings WHERE key = 'maintenanceMode' LIMIT 1",
+    );
+    if (rows[0]?.value === true || rows[0]?.value === 'true') {
+      throw new ServiceUnavailableException('New bookings are temporarily paused for maintenance');
     }
     const job = this.jobRepo.create({
       ...dto,

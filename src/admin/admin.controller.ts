@@ -1,7 +1,7 @@
 // trac-backend/src/admin/admin.controller.ts
 // Day 22: Admin endpoints — platform overview
 
-import { Controller, Get, Patch, Delete, Param, Query, Body, Req, Request, UseGuards, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Query, Body, Req, Request, UseGuards, ForbiddenException } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { AdminService } from './admin.service';
 import { VerificationService } from '../verification/verification.service';
@@ -326,6 +326,20 @@ export class AdminController {
   async approveLicense(@Request() req: any, @Param('userId') userId: string) {
     if (req.user.role !== 'admin') throw new ForbiddenException();
     return this.verificationService.approveLicense(userId);
+  }
+
+  @Post('admins/assign')
+  @UseGuards(AuthGuard('jwt'))
+  async assignAdminRole(@Request() req: any, @Body() body: { email: string; adminRole: string }) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.assignAdminRole(req.user.id, body.email, body.adminRole);
+  }
+
+  @Patch('admins/:id/role')
+  @UseGuards(AuthGuard('jwt'))
+  async updateAdminRole(@Request() req: any, @Param('id') id: string, @Body() body: { adminRole: string }) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.updateAdminRole(req.user.id, id, body.adminRole);
   }
 
   @Patch('license/:userId/expiry')

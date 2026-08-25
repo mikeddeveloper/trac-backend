@@ -1,13 +1,13 @@
 // trac-backend/src/admin/admin.service.ts
 // Day 22: Admin service — platform-wide data
 
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, MoreThanOrEqual } from 'typeorm';
 import { Job, JobStatus } from '../jobs/entities/job.entity';
 import { Payment, PaymentStatus, PaymentType } from '../payments/entities/payment.entity';
 import { Dispute, DisputeStatus } from '../disputes/entities/dispute.entity';
-import { User } from '../users/entities/user.entity';
+import { User, UserRole } from '../users/entities/user.entity';
 import { Rating } from '../ratings/entities/rating.entity';
 import { PushService } from '../push/push.service';
 import { EventsGateway } from '../events/events.gateway';
@@ -254,6 +254,10 @@ export class AdminService {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     await this.userRepo.update(userId, { isSuspended: true });
     if (user) {
+      this.eventsGateway.notifyUser(userId, 'account:suspended', {
+        message: 'Your account has been suspended. Complete verification or contact support.',
+        url: '/dashboard/verification',
+      });
       await this.pushService.sendToUser(userId, {
         title: 'Account suspended',
         body: 'Your Trac account has been suspended. Complete verification or contact support for help.',
@@ -265,7 +269,7 @@ export class AdminService {
         'Important: your Trac account has been suspended',
         'Account suspended',
         'Your account has been suspended. Please complete your verification or contact info@trac.com.ng if you need assistance.',
-        undefined,
+        'https://traclogistics.com.ng/dashboard/verification',
         'Complete Verification',
       );
     }
@@ -526,7 +530,11 @@ export class AdminService {
         reference: p.reference,
         amount: p.amount,
         vat: Number(p.vatAmount) || 0,
-        commission: Number(p.amount) * 0.10,
+        commission: Number(p.tracCommission) || 0,
+        proofOfDeliveryUrl: p.job?.proofOfDeliveryUrl || null,
+        proofUploadedAt: p.job?.proofUploadedAt || null,
+        deliveryStatus: p.job?.status || null,
+        otpVerified: Boolean(p.job?.otpVerified),
         status: p.status,
         createdAt: p.createdAt,
         jobId: p.jobId,
@@ -564,7 +572,7 @@ export class AdminService {
     );
 
     const totalProcessed  = successPayments.reduce((sum, p) => sum + Number(p.amount), 0);
-    const totalCommission = totalProcessed * 0.10;
+    const totalCommission = successPayments.reduce((sum, p) => sum + Number(p.tracCommission || 0), 0);
     const totalVAT        = successPayments.reduce((sum, p) => sum + Number((p as any).vatAmount || 0), 0);
     const thisMonthTotal  = thisMonthPayments.reduce((sum, p) => sum + Number(p.amount), 0);
     const lastMonthTotal  = lastMonthPayments.reduce((sum, p) => sum + Number(p.amount), 0);
@@ -596,9 +604,10 @@ export class AdminService {
     const payment = await this.paymentRepo.findOne({ where: { id: paymentId } });
     if (!payment) throw new Error('Payment not found');
 
-    await this.paymentRepo.update(paymentId, { status: 'released' as any });
-
     const job = await this.jobRepo.findOne({ where: { id: (payment as any).jobId } });
+    if (!job?.proofOfDeliveryUrl) throw new BadRequestException('Proof of delivery must be reviewed before releasing funds');
+    if (!job.otpVerified || job.status !== JobStatus.DELIVERED) throw new BadRequestException('Delivery must be PIN-confirmed and marked delivered before releasing funds');
+    await this.paymentRepo.update(paymentId, { status: 'released' as any });
     if (job?.transporterId) {
       this.eventsGateway.notifyUser(job.transporterId, 'payment:released', {
         amount: payment.amount,
@@ -892,18 +901,58 @@ export class AdminService {
   // ─── List admin accounts ──────────────────────────────────────────────────────
 
   async getAdminUsers() {
+    await this.getSettings();
     const admins = await this.userRepo.find({
       where: { role: 'admin' as any },
       order: { createdAt: 'ASC' },
     });
+    const roleRows: { key: string; value: string }[] = await this.userRepo.query(
+      "SELECT key, value FROM platform_settings WHERE key LIKE 'adminRole:%'",
+    );
+    const roles = new Map(roleRows.map(row => [row.key.slice('adminRole:'.length), String(row.value)]));
     return admins.map(u => ({
       id: u.id,
       fullName: u.fullName,
       email: u.email,
-      status: (u as any).status || 'active',
+      status: u.isSuspended ? 'suspended' : 'active',
+      adminRole: roles.get(u.id) || 'super_admin',
       createdAt: u.createdAt,
       lastLogin: (u as any).lastLogin || null,
     }));
+  }
+
+  async assignAdminRole(requesterId: string, email: string, adminRole: string) {
+    const allowedRoles = new Set(['super_admin', 'operations', 'finance', 'compliance', 'support']);
+    if (!allowedRoles.has(adminRole)) throw new BadRequestException('Invalid administrator role');
+    const requester = await this.userRepo.findOne({ where: { id: requesterId } });
+    await this.getSettings();
+    const requesterRoleRows = await this.userRepo.query(
+      "SELECT value FROM platform_settings WHERE key = $1 LIMIT 1",
+      [`adminRole:${requesterId}`],
+    );
+    const requesterAdminRole = requesterRoleRows[0]?.value ? String(requesterRoleRows[0].value) : 'super_admin';
+    if (!requester || requester.role !== UserRole.ADMIN || requesterAdminRole !== 'super_admin') {
+      throw new ForbiddenException('Only a super administrator can assign administrator roles');
+    }
+    const target = await this.userRepo.findOne({ where: { email: email.trim().toLowerCase() } });
+    if (!target) throw new NotFoundException('No user account was found for this email address');
+    await this.userRepo.update(target.id, {
+      role: UserRole.ADMIN,
+      isSuspended: false,
+      sessionVersion: Number(target.sessionVersion || 0) + 1,
+    });
+    await this.userRepo.query(
+      `INSERT INTO platform_settings (key, value, updated_at) VALUES ($1, $2::jsonb, now())
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+      [`adminRole:${target.id}`, JSON.stringify(adminRole)],
+    );
+    return { message: `${target.fullName} is now assigned to the ${adminRole.replace('_', ' ')} role` };
+  }
+
+  async updateAdminRole(requesterId: string, targetId: string, adminRole: string) {
+    const target = await this.userRepo.findOne({ where: { id: targetId } });
+    if (!target || target.role !== UserRole.ADMIN) throw new NotFoundException('Administrator account not found');
+    return this.assignAdminRole(requesterId, target.email, adminRole);
   }
 
   // ─── Revoke verification ──────────────────────────────────────────────────────
@@ -977,6 +1026,9 @@ export class AdminService {
     ]);
     const entries = Object.entries(settings).filter(([key]) => allowed.has(key));
     if (!entries.length) return { message: 'No valid settings supplied', settings: {} };
+    if ('commissionRate' in settings && (!Number.isFinite(Number(settings.commissionRate)) || Number(settings.commissionRate) < 0 || Number(settings.commissionRate) > 100)) {
+      throw new BadRequestException('Commission rate must be between 0 and 100');
+    }
     await this.getSettings();
     for (const [key, value] of entries) {
       await this.userRepo.query(
