@@ -24,8 +24,20 @@ export class PaymentsController {
   // ─── POST /payments/initialize ───────────────────────────────────────────────
   @Post('initialize')
   @UseGuards(AuthGuard('jwt'))
-  async initializePayment(@Req() req: any, @Body() body: { jobId: string; amount: number; currency?: string }) {
-    return this.paymentsService.initializePayment(req.user.email, body.jobId, req.user.id);
+  async initializePayment(@Req() req: any, @Body() body: { jobId: string; amount: number; currency?: string; useWallet?: boolean }) {
+    return this.paymentsService.initializePayment(req.user.email, body.jobId, req.user.id, Boolean(body.useWallet));
+  }
+
+  @Post('wallet/topup')
+  @UseGuards(AuthGuard('jwt'))
+  async initializeWalletTopup(@Req() req: any, @Body() body: { amount: number }) {
+    return this.paymentsService.initializeWalletTopup(req.user.email, req.user.id, body.amount);
+  }
+
+  @Get('wallet/topup/verify/:reference')
+  @UseGuards(AuthGuard('jwt'))
+  async verifyWalletTopup(@Param('reference') reference: string, @Req() req: any) {
+    return this.paymentsService.verifyWalletTopup(reference, req.user.id);
   }
 
   // ─── GET /payments/verify/:reference ────────────────────────────────────────

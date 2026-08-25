@@ -55,6 +55,116 @@ export class PaymentsService {
     };
   }
 
+  private async ensureWalletTables(): Promise<void> {
+    await this.paymentRepo.query(`
+      CREATE TABLE IF NOT EXISTS wallet_accounts (
+        "userId" uuid PRIMARY KEY,
+        "balance" numeric(14,2) NOT NULL DEFAULT 0 CHECK ("balance" >= 0),
+        "createdAt" timestamptz NOT NULL DEFAULT now(),
+        "updatedAt" timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE TABLE IF NOT EXISTS wallet_entries (
+        "reference" varchar(160) PRIMARY KEY,
+        "userId" uuid NOT NULL,
+        "amount" numeric(14,2) NOT NULL CHECK ("amount" > 0),
+        "direction" varchar(10) NOT NULL CHECK ("direction" IN ('credit','debit')),
+        "kind" varchar(30) NOT NULL,
+        "status" varchar(15) NOT NULL DEFAULT 'pending',
+        "jobId" uuid NULL,
+        "metadata" jsonb NULL,
+        "createdAt" timestamptz NOT NULL DEFAULT now(),
+        "completedAt" timestamptz NULL
+      );
+      CREATE INDEX IF NOT EXISTS "IDX_wallet_entries_user_created" ON wallet_entries ("userId", "createdAt" DESC);
+    `);
+  }
+
+  async initializeWalletTopup(email: string, userId: string, requestedAmount: number) {
+    const amount = Number(requestedAmount);
+    if (!Number.isFinite(amount) || amount < 100 || amount > 5_000_000 || Math.round(amount * 100) !== amount * 100) {
+      throw new BadRequestException('Top-up amount must be between NGN 100 and NGN 5,000,000');
+    }
+    await this.ensureWalletTables();
+    const reference = `TRAC-WALLET-${userId}-${Date.now()}`;
+    await this.paymentRepo.query(
+      `INSERT INTO wallet_entries ("reference", "userId", "amount", "direction", "kind", "status", "metadata") VALUES ($1,$2,$3,'credit','topup','pending',$4)`,
+      [reference, userId, amount, JSON.stringify({ purpose: 'wallet_topup' })],
+    );
+    try {
+      const response = await axios.post(`${this.paystackUrl}/transaction/initialize`, {
+        email,
+        amount: Math.round(amount * 100),
+        reference,
+        callback_url: `${this.configService.get('FRONTEND_URL') || 'https://traclogistics.com.ng'}/dashboard/payments?wallet_topup=1`,
+        metadata: { purpose: 'wallet_topup', customerId: userId },
+      }, { headers: this.headers });
+      if (response.data?.status !== true) throw new Error(response.data?.message || 'Paystack rejected the top-up');
+      return {
+        authorizationUrl: response.data.data.authorization_url,
+        accessCode: response.data.data.access_code,
+        reference,
+        amount,
+      };
+    } catch (error) {
+      await this.paymentRepo.query(`UPDATE wallet_entries SET "status"='failed' WHERE "reference"=$1`, [reference]);
+      this.logger.error('Wallet top-up initialization failed', (error as any)?.response?.data || (error as any)?.message);
+      throw new BadRequestException('Wallet top-up initialization failed');
+    }
+  }
+
+  private async creditVerifiedTopup(data: any, expectedUserId?: string): Promise<boolean> {
+    await this.ensureWalletTables();
+    const rows = await this.paymentRepo.query(`SELECT * FROM wallet_entries WHERE "reference"=$1 AND "kind"='topup'`, [data.reference]);
+    const entry = rows[0];
+    if (!entry || (expectedUserId && entry.userId !== expectedUserId)) return false;
+    if (entry.status === 'success') return true;
+    const valid = data.status === 'success'
+      && Number(data.amount) === Math.round(Number(entry.amount) * 100)
+      && data.currency === 'NGN'
+      && data.metadata?.purpose === 'wallet_topup'
+      && data.metadata?.customerId === entry.userId;
+    if (!valid) return false;
+    await this.paymentRepo.manager.transaction(async manager => {
+      const locked = (await manager.query(`SELECT * FROM wallet_entries WHERE "reference"=$1 FOR UPDATE`, [data.reference]))[0];
+      if (!locked || locked.status === 'success') return;
+      await manager.query(`INSERT INTO wallet_accounts ("userId", "balance") VALUES ($1,0) ON CONFLICT ("userId") DO NOTHING`, [entry.userId]);
+      await manager.query(`UPDATE wallet_accounts SET "balance"="balance"+$1, "updatedAt"=now() WHERE "userId"=$2`, [entry.amount, entry.userId]);
+      await manager.query(`UPDATE wallet_entries SET "status"='success', "completedAt"=now(), "metadata"=$2 WHERE "reference"=$1`, [data.reference, JSON.stringify(data)]);
+    });
+    this.eventsGateway.notifyUser(entry.userId, 'wallet:credited', { amount: Number(entry.amount), reference: entry.reference });
+    return true;
+  }
+
+  private async creditDeliveryCashback(payment: Payment): Promise<void> {
+    const amount = Number(payment.customerCashback || 0);
+    if (!payment.customerId || amount <= 0) return;
+    await this.ensureWalletTables();
+    const reference = `CASHBACK-${payment.reference}`;
+    await this.paymentRepo.manager.transaction(async manager => {
+      const exists = (await manager.query(`SELECT "reference" FROM wallet_entries WHERE "reference"=$1 FOR UPDATE`, [reference]))[0];
+      if (exists) return;
+      await manager.query(`INSERT INTO wallet_accounts ("userId", "balance") VALUES ($1,0) ON CONFLICT ("userId") DO NOTHING`, [payment.customerId]);
+      await manager.query(`UPDATE wallet_accounts SET "balance"="balance"+$1, "updatedAt"=now() WHERE "userId"=$2`, [amount, payment.customerId]);
+      await manager.query(`INSERT INTO wallet_entries ("reference", "userId", "amount", "direction", "kind", "status", "jobId", "metadata", "completedAt") VALUES ($1,$2,$3,'credit','cashback','success',$4,$5,now())`, [reference, payment.customerId, amount, payment.jobId, JSON.stringify({ paymentReference: payment.reference })]);
+    });
+    this.eventsGateway.notifyUser(payment.customerId, 'wallet:credited', { amount, reference, kind: 'cashback' });
+  }
+
+  async verifyWalletTopup(reference: string, userId: string) {
+    await this.ensureWalletTables();
+    const existing = (await this.paymentRepo.query(`SELECT * FROM wallet_entries WHERE "reference"=$1 AND "userId"=$2 AND "kind"='topup'`, [reference, userId]))[0];
+    if (!existing) throw new NotFoundException('Wallet top-up not found');
+    if (existing.status === 'success') return { status: 'success', reference, amount: Number(existing.amount), purpose: 'wallet_topup' };
+    try {
+      const response = await axios.get(`${this.paystackUrl}/transaction/verify/${encodeURIComponent(reference)}`, { headers: this.headers });
+      const credited = await this.creditVerifiedTopup(response.data?.data, userId);
+      return { status: credited ? 'success' : response.data?.data?.status || 'pending', reference, amount: Number(existing.amount), purpose: 'wallet_topup' };
+    } catch (error) {
+      this.logger.error('Wallet top-up verification failed', (error as any)?.response?.data || (error as any)?.message);
+      throw new BadRequestException('Wallet top-up verification failed');
+    }
+  }
+
   private async configuredCommissionRate(): Promise<number | undefined> {
     try {
       const rows = await this.paymentRepo.query(
@@ -141,6 +251,7 @@ export class PaymentsService {
     email: string,
     jobId: string,
     customerId: string,
+    useWallet = false,
   ) {
     const job = await this.jobRepo.findOne({ where: { id: jobId } });
     if (!job) throw new NotFoundException('Job not found');
@@ -177,6 +288,29 @@ export class PaymentsService {
     const vatAmount  = breakdown.vatOnCommission;
     // Customer pays the agreed delivery amount only
     const totalCharged = amount;
+
+    if (useWallet) {
+      await this.ensureWalletTables();
+      const reference = `TRAC-WALLET-PAY-${jobId}-${Date.now()}`;
+      const payment = await this.paymentRepo.manager.transaction(async manager => {
+        await manager.query(`INSERT INTO wallet_accounts ("userId", "balance") VALUES ($1,0) ON CONFLICT ("userId") DO NOTHING`, [customerId]);
+        const account = (await manager.query(`SELECT "balance" FROM wallet_accounts WHERE "userId"=$1 FOR UPDATE`, [customerId]))[0];
+        if (Number(account?.balance || 0) < totalCharged) throw new BadRequestException('Your Trac Balance is insufficient for this payment');
+        await manager.query(`UPDATE wallet_accounts SET "balance"="balance"-$1, "updatedAt"=now() WHERE "userId"=$2`, [totalCharged, customerId]);
+        await manager.query(`INSERT INTO wallet_entries ("reference", "userId", "amount", "direction", "kind", "status", "jobId", "metadata", "completedAt") VALUES ($1,$2,$3,'debit','escrow_payment','success',$4,$5,now())`, [reference, customerId, totalCharged, jobId, JSON.stringify({ purpose: 'escrow_payment' })]);
+        const created = manager.create(Payment, {
+          reference, amount, currency, status: PaymentStatus.SUCCESS, type: PaymentType.ESCROW,
+          jobId, customerId, tracCommission: breakdown.tracCommission,
+          transporterPayout: breakdown.transporterPayout, customerCashback: breakdown.customerCashback,
+          vatAmount, paidAt: new Date(), paystackMeta: { source: 'wallet', walletReference: reference },
+        });
+        await manager.save(created);
+        return created;
+      });
+      await this.activatePaidJob(payment);
+      this.eventsGateway.notifyUser(customerId, 'payment:confirmed', { reference, amount, status: 'success', paidAt: new Date(), jobId, message: `Payment of NGN ${amount.toLocaleString()} from Trac Balance is held in escrow` });
+      return { status: 'success', paidWith: 'wallet', reference, vatAmount, totalCharged, jobId };
+    }
 
     try {
       const response = await axios.post(
@@ -324,6 +458,21 @@ export class PaymentsService {
       throw new BadRequestException('Only a confirmed payment can be refunded');
     }
 
+    if ((payment.paystackMeta as any)?.source === 'wallet') {
+      await this.ensureWalletTables();
+      const refundReference = `WALLET-REFUND-${payment.reference}`;
+      await this.paymentRepo.manager.transaction(async manager => {
+        const already = (await manager.query(`SELECT "reference" FROM wallet_entries WHERE "reference"=$1 FOR UPDATE`, [refundReference]))[0];
+        if (already) return;
+        await manager.query(`INSERT INTO wallet_accounts ("userId", "balance") VALUES ($1,0) ON CONFLICT ("userId") DO NOTHING`, [payment.customerId]);
+        await manager.query(`UPDATE wallet_accounts SET "balance"="balance"+$1, "updatedAt"=now() WHERE "userId"=$2`, [payment.amount, payment.customerId]);
+        await manager.query(`INSERT INTO wallet_entries ("reference", "userId", "amount", "direction", "kind", "status", "jobId", "metadata", "completedAt") VALUES ($1,$2,$3,'credit','refund','success',$4,$5,now())`, [refundReference, payment.customerId, payment.amount, payment.jobId, JSON.stringify({ originalReference: payment.reference, reason })]);
+        await manager.update(Payment, payment.id, { status: PaymentStatus.REFUNDED });
+      });
+      this.eventsGateway.notifyUser(payment.customerId, 'payment:refunded', { amount: Number(payment.amount), reference: refundReference, message: `NGN ${Number(payment.amount).toLocaleString()} was returned to your Trac Balance.` });
+      return { message: 'Refund returned to the customer Trac Balance', status: 'refunded' };
+    }
+
     const existing = await this.paymentRepo.findOne({
       where: { jobId: payment.jobId, type: PaymentType.REFUND },
       order: { createdAt: 'DESC' },
@@ -437,6 +586,12 @@ export class PaymentsService {
   private async handleChargeSuccess(data: any): Promise<void> {
     const { reference, amount, paid_at, metadata } = data;
     this.logger.log(`✅ charge.success: ref=${reference}`);
+
+    if (metadata?.purpose === 'wallet_topup') {
+      const credited = await this.creditVerifiedTopup(data);
+      if (!credited) this.logger.error(`Ignoring invalid wallet top-up ${reference}`);
+      return;
+    }
 
     const payment = await this.paymentRepo.findOne({ where: { reference } });
     if (!payment) {
@@ -598,9 +753,13 @@ export class PaymentsService {
     });
 
     if (!payment) throw new NotFoundException('No confirmed payment found for this job');
-    if (payment.status === PaymentStatus.RELEASED) return { message: 'Payment already released' };
+    if (payment.status === PaymentStatus.RELEASED) {
+      await this.creditDeliveryCashback(payment);
+      return { message: 'Payment already released' };
+    }
 
     await this.paymentRepo.update(payment.id, { status: PaymentStatus.RELEASED });
+    await this.creditDeliveryCashback(payment);
     this.logger.log(`✅ Escrow released for job ${jobId} — available for withdrawal`);
 
     // Notify transporter
@@ -791,11 +950,15 @@ export class PaymentsService {
   // ─── Get wallet balance ──────────────────────────────────────────────────────
 
   async getWalletBalance(userId: string) {
+    await this.ensureWalletTables();
     const payments = await this.paymentRepo.find({ where: { customerId: userId } });
     const escrowHeld  = payments.filter(p => p.status === PaymentStatus.HELD || p.status === PaymentStatus.SUCCESS).reduce((s, p) => s + Number(p.amount), 0);
     const totalSpent  = payments.filter(p => p.status === PaymentStatus.RELEASED).reduce((s, p) => s + Number(p.amount), 0);
-    const totalCashback = payments.filter(p => p.customerCashback).reduce((s, p) => s + Number(p.customerCashback), 0);
-    return { escrowHeld, totalSpent, totalCashback };
+    const account = (await this.paymentRepo.query(`SELECT "balance" FROM wallet_accounts WHERE "userId"=$1`, [userId]))[0];
+    const cashback = (await this.paymentRepo.query(`SELECT COALESCE(SUM("amount"),0) AS total FROM wallet_entries WHERE "userId"=$1 AND "kind"='cashback' AND "status"='success'`, [userId]))[0];
+    const totalCashback = Number(cashback?.total || 0);
+    const walletTransactions = await this.paymentRepo.query(`SELECT "reference", "amount", "direction", "kind", "status", "jobId", "createdAt", "completedAt" FROM wallet_entries WHERE "userId"=$1 ORDER BY "createdAt" DESC LIMIT 50`, [userId]);
+    return { balance: Number(account?.balance || 0), escrowHeld, totalSpent, totalCashback, walletTransactions };
   }
 
   // ─── Get transporter earnings ────────────────────────────────────────────────
