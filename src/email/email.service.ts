@@ -176,7 +176,7 @@ export class EmailService {
     </div>
 
     <div style="text-align:center;margin-top:24px;">
-      <a href="https://www.traclogistics.com.ng/dashboard/ratings"
+      <a href="https://www.traclogistics.com.ng/${isTransporter ? 'dashboard/verification' : 'dashboard'}"
          style="display:inline-block;background:#6EC89A;color:#1E3A5F;padding:14px 32px;border-radius:12px;font-weight:800;font-size:1rem;text-decoration:none;">
         ${isTransporter ? 'Complete Verification →' : 'Post Your First Delivery →'}
       </a>
@@ -503,6 +503,7 @@ export class EmailService {
     fullName: string;
     email: string;
   }, delivery: {
+    jobId: string;
     route: string;
     amount: number;
   }) {
@@ -536,7 +537,7 @@ export class EmailService {
       Thank you for using Trac Logistics! Please rate your transporter to help build trust in our community.
     </p>
     <div style="text-align:center;">
-      <a href="https://www.traclogistics.com.ng/dashboard"
+      <a href="https://www.traclogistics.com.ng/dashboard/ratings?job=${encodeURIComponent(delivery.jobId)}"
          style="display:inline-block;background:#6EC89A;color:#1E3A5F;padding:12px 28px;border-radius:12px;font-weight:800;font-size:0.9rem;text-decoration:none;">
         Rate Your Transporter →
       </a>

@@ -87,7 +87,11 @@ export class RatingsService {
       ? { customerId: userId, status: JobStatus.DELIVERED }
       : { transporterId: userId, status: JobStatus.DELIVERED };
 
-    const deliveredJobs = await this.jobRepo.find({ where: whereClause });
+    const deliveredJobs = await this.jobRepo.find({
+      where: whereClause,
+      relations: ['customer', 'transporter'],
+      order: { deliveredAt: 'DESC' },
+    });
     const ratingType = userRole === 'customer'
       ? RatingRole.CUSTOMER_TO_TRANSPORTER
       : RatingRole.TRANSPORTER_TO_CUSTOMER;

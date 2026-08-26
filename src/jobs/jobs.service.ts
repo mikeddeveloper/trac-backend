@@ -398,6 +398,7 @@ export class JobsService {
           this.emailService.sendDeliveryConfirmedEmail(
             { fullName: customer.fullName, email: customer.email },
             {
+              jobId: job.id,
               route: job.pickupState + ' → ' + job.deliveryState,
               amount: Number(job.acceptedAmount) || 0,
             },
