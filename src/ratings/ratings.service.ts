@@ -38,7 +38,7 @@ export class RatingsService {
     let toUserId: string;
     let type: RatingRole;
 
-    if (userRole === 'customer') {
+    if (userRole === 'customer' || userRole === 'enterprise') {
       if (job.customerId !== fromUserId) throw new BadRequestException('This is not your job');
       if (!job.transporterId) throw new BadRequestException('No transporter assigned to this job');
       toUserId = job.transporterId;
@@ -83,7 +83,8 @@ export class RatingsService {
   }
 
   async getPendingRatings(userId: string, userRole: string): Promise<Job[]> {
-    const whereClause = userRole === 'customer'
+    const isCustomer = userRole === 'customer' || userRole === 'enterprise';
+    const whereClause = isCustomer
       ? { customerId: userId, status: JobStatus.DELIVERED }
       : { transporterId: userId, status: JobStatus.DELIVERED };
 
@@ -92,7 +93,7 @@ export class RatingsService {
       relations: ['customer', 'transporter'],
       order: { deliveredAt: 'DESC' },
     });
-    const ratingType = userRole === 'customer'
+    const ratingType = isCustomer
       ? RatingRole.CUSTOMER_TO_TRANSPORTER
       : RatingRole.TRANSPORTER_TO_CUSTOMER;
 
@@ -102,5 +103,21 @@ export class RatingsService {
       if (!rated) pending.push(job);
     }
     return pending;
+  }
+
+  async getRateableJob(userId: string, userRole: string, jobId: string): Promise<Job> {
+    const job = await this.jobRepo.findOne({
+      where: { id: jobId },
+      relations: ['customer', 'transporter'],
+    });
+    if (!job) throw new NotFoundException('Delivery not found');
+    if (job.status !== JobStatus.DELIVERED) throw new BadRequestException('This delivery is not ready to rate');
+
+    const isCustomer = userRole === 'customer' || userRole === 'enterprise';
+    const isParty = isCustomer ? job.customerId === userId : job.transporterId === userId;
+    if (!isParty) throw new BadRequestException('Sign in with the account that received this delivery email');
+    const type = isCustomer ? RatingRole.CUSTOMER_TO_TRANSPORTER : RatingRole.TRANSPORTER_TO_CUSTOMER;
+    if (await this.hasRated(userId, jobId, type)) throw new BadRequestException('You have already rated this delivery');
+    return job;
   }
 }
