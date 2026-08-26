@@ -165,20 +165,6 @@ export class PaymentsService {
     }
   }
 
-  private async configuredCommissionRate(): Promise<number | undefined> {
-    try {
-      const rows = await this.paymentRepo.query(
-        "SELECT value FROM platform_settings WHERE key = 'commissionRate' LIMIT 1",
-      );
-      const percentage = Number(rows[0]?.value);
-      return Number.isFinite(percentage) && percentage >= 0 && percentage <= 100
-        ? percentage / 100
-        : undefined;
-    } catch {
-      return undefined;
-    }
-  }
-
   private async getAvailablePaystackBalanceKobo(): Promise<number> {
     try {
       const response = await axios.get(`${this.paystackUrl}/balance`, { headers: this.headers });
@@ -282,8 +268,7 @@ export class PaymentsService {
     const amount = Number(job.acceptedAmount);
     const currency = 'NGN';
     const reference  = `TRAC-${jobId}-${Date.now()}`;
-    const configuredRate = await this.configuredCommissionRate();
-    const breakdown  = this.calculatePayout(amount, job.distanceKm ? Number(job.distanceKm) : undefined, configuredRate);
+    const breakdown  = this.calculatePayout(amount, job.distanceKm ? Number(job.distanceKm) : undefined);
     // VAT is 7.5% on Trac's commission only — borne by Trac, not added to customer's bill
     const vatAmount  = breakdown.vatOnCommission;
     // Customer pays the agreed delivery amount only
@@ -840,11 +825,13 @@ export class PaymentsService {
       throw new BadRequestException('A withdrawal has already been initiated for this job');
     }
 
-    const fallbackBreakdown = this.calculatePayout(
+    const correctedBreakdown = this.calculatePayout(
       Number(payment.amount),
       job.distanceKm ? Number(job.distanceKm) : undefined,
     );
-    const payoutAmount = Number(payment.transporterPayout) || fallbackBreakdown.transporterPayout;
+    // Recalculate at approval so withdrawals created under an old commission
+    // setting cannot pay more or less than the fixed 10% platform rate.
+    const payoutAmount = correctedBreakdown.transporterPayout;
     const payoutKobo = Math.round(payoutAmount * 100);
     const availableBalanceKobo = await this.getAvailablePaystackBalanceKobo();
     if (availableBalanceKobo < payoutKobo) {
@@ -853,7 +840,12 @@ export class PaymentsService {
 
     const claimed = await this.paymentRepo.update(
       { id: payment.id, status: PaymentStatus.HELD },
-      { status: PaymentStatus.RELEASED },
+      {
+        status: PaymentStatus.RELEASED,
+        tracCommission: correctedBreakdown.tracCommission,
+        transporterPayout: correctedBreakdown.transporterPayout,
+        vatAmount: correctedBreakdown.vatOnCommission,
+      },
     );
     if (!claimed.affected) throw new BadRequestException('This payout is already being processed');
 
@@ -865,7 +857,7 @@ export class PaymentsService {
       type: PaymentType.RELEASE,
       jobId,
       customerId: payment.customerId,
-      tracCommission: payment.tracCommission,
+      tracCommission: correctedBreakdown.tracCommission,
       transporterPayout: payoutAmount,
       customerCashback: payment.customerCashback,
     });
@@ -953,8 +945,8 @@ export class PaymentsService {
 
   // ─── Commission Calculator ───────────────────────────────────────────────────
 
-  calculatePayout(totalAmount: number, distanceKm?: number, configuredRate?: number) {
-    const rate              = configuredRate ?? this.commissionRate(distanceKm);
+  calculatePayout(totalAmount: number, distanceKm?: number) {
+    const rate              = this.commissionRate(distanceKm);
     const tracCommission    = +(totalAmount * rate).toFixed(2);
     const vatOnCommission   = +(tracCommission * this.VAT_RATE).toFixed(2);
     const transporterPayout = +(totalAmount * (1 - rate)).toFixed(2);
@@ -964,7 +956,7 @@ export class PaymentsService {
   }
 
   async calculateConfiguredPayout(totalAmount: number, distanceKm?: number) {
-    return this.calculatePayout(totalAmount, distanceKm, await this.configuredCommissionRate());
+    return this.calculatePayout(totalAmount, distanceKm);
   }
 
   // ─── Get transactions ────────────────────────────────────────────────────────

@@ -87,8 +87,8 @@ describe('PaymentsService launch protections', () => {
       jobId: job.id,
       customerId: job.customerId,
       amount: 125000,
-      transporterPayout: 112500,
-      tracCommission: 12500,
+      transporterPayout: 115625,
+      tracCommission: 9375,
       status: PaymentStatus.HELD,
       type: 'escrow',
     };
@@ -109,6 +109,14 @@ describe('PaymentsService launch protections', () => {
       expect.stringContaining('/transfer'),
       expect.objectContaining({ source: 'balance', amount: 11_250_000, recipient: 'RCP_test' }),
       expect.any(Object),
+    );
+    expect(paymentRepo.update).toHaveBeenCalledWith(
+      { id: escrowPayment.id, status: PaymentStatus.HELD },
+      expect.objectContaining({
+        status: PaymentStatus.RELEASED,
+        tracCommission: 12500,
+        transporterPayout: 112500,
+      }),
     );
     expect(paymentRepo.save.mock.invocationCallOrder[0])
       .toBeLessThan(mockedAxios.post.mock.invocationCallOrder[0]);

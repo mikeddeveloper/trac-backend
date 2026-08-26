@@ -1058,7 +1058,7 @@ export class AdminService {
       'SELECT key, value FROM platform_settings',
     );
     for (const row of rows) {
-      if (row.key in defaults) (defaults as Record<string, unknown>)[row.key] = row.value;
+      if (row.key in defaults && row.key !== 'commissionRate') (defaults as Record<string, unknown>)[row.key] = row.value;
     }
     return defaults;
   }
@@ -1070,8 +1070,8 @@ export class AdminService {
     ]);
     const entries = Object.entries(settings).filter(([key]) => allowed.has(key));
     if (!entries.length) return { message: 'No valid settings supplied', settings: {} };
-    if ('commissionRate' in settings && (!Number.isFinite(Number(settings.commissionRate)) || Number(settings.commissionRate) < 0 || Number(settings.commissionRate) > 100)) {
-      throw new BadRequestException('Commission rate must be between 0 and 100');
+    if ('commissionRate' in settings && Number(settings.commissionRate) !== 10) {
+      throw new BadRequestException('Commission rate is fixed at 10%');
     }
     await this.getSettings();
     for (const [key, value] of entries) {
