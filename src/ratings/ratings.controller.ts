@@ -48,6 +48,11 @@ export class RatingsController {
     return this.ratingsService.getPendingRatings(req.user.id, req.user.role);
   }
 
+  @Get('submitted')
+  async getSubmittedRatings(@Req() req: any) {
+    return this.ratingsService.getRatingsByUser(req.user.id);
+  }
+
   @Get('job/:jobId')
   async getRateableJob(@Req() req: any, @Param('jobId') jobId: string) {
     return this.ratingsService.getRateableJob(req.user.id, req.user.role, jobId);

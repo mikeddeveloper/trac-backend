@@ -538,6 +538,8 @@ export class AdminService {
         amount: p.amount,
         vat: Number(p.vatAmount) || 0,
         commission: Number(p.tracCommission) || 0,
+        transporterPayout: Number(p.transporterPayout) || 0,
+        type: p.type,
         proofOfDeliveryUrl: p.job?.proofOfDeliveryUrl || null,
         proofUploadedAt: p.job?.proofUploadedAt || null,
         deliveryStatus: p.job?.status || null,
@@ -568,19 +570,25 @@ export class AdminService {
   // ─── Payment stats ────────────────────────────────────────────────────────────
 
   async getPaymentStats() {
-    const successPayments = await this.paymentRepo.find({ where: { status: 'success' as any } });
+    const allPayments = await this.paymentRepo.find();
+    const escrowPayments = allPayments.filter(p => p.type === PaymentType.ESCROW && Boolean(p.jobId));
+    const confirmedEscrows = escrowPayments.filter(p =>
+      [PaymentStatus.SUCCESS, PaymentStatus.HELD, PaymentStatus.RELEASED].includes(p.status),
+    );
+    const completedPayouts = allPayments.filter(p => p.type === PaymentType.RELEASE && p.status === PaymentStatus.RELEASED);
     const thisMonth    = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
     const lastMonth    = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1);
     const lastMonthEnd = new Date(new Date().getFullYear(), new Date().getMonth(), 0);
 
-    const thisMonthPayments = successPayments.filter(p => new Date(p.createdAt) >= thisMonth);
-    const lastMonthPayments = successPayments.filter(
+    const thisMonthPayments = confirmedEscrows.filter(p => new Date(p.createdAt) >= thisMonth);
+    const lastMonthPayments = confirmedEscrows.filter(
       p => new Date(p.createdAt) >= lastMonth && new Date(p.createdAt) <= lastMonthEnd,
     );
 
-    const totalProcessed  = successPayments.reduce((sum, p) => sum + Number(p.amount), 0);
-    const totalCommission = successPayments.reduce((sum, p) => sum + Number(p.tracCommission || 0), 0);
-    const totalVAT        = successPayments.reduce((sum, p) => sum + Number((p as any).vatAmount || 0), 0);
+    const totalProcessed  = confirmedEscrows.reduce((sum, p) => sum + Number(p.amount), 0);
+    const totalCommission = confirmedEscrows.reduce((sum, p) => sum + Number(p.tracCommission || 0), 0);
+    const totalVAT        = confirmedEscrows.reduce((sum, p) => sum + Number((p as any).vatAmount || 0), 0);
+    const totalPaidOut    = completedPayouts.reduce((sum, p) => sum + Number(p.amount), 0);
     const thisMonthTotal  = thisMonthPayments.reduce((sum, p) => sum + Number(p.amount), 0);
     const lastMonthTotal  = lastMonthPayments.reduce((sum, p) => sum + Number(p.amount), 0);
 
@@ -599,6 +607,14 @@ export class AdminService {
       thisMonth: thisMonthTotal,
       lastMonth: lastMonthTotal,
       escrowHeld,
+      totalPaidOut,
+      counts: {
+        attempts: escrowPayments.length,
+        confirmed: confirmedEscrows.length,
+        pending: escrowPayments.filter(p => p.status === PaymentStatus.PENDING).length,
+        failed: escrowPayments.filter(p => p.status === PaymentStatus.FAILED).length,
+        payoutRecords: allPayments.filter(p => p.type === PaymentType.RELEASE).length,
+      },
       growth: lastMonthTotal > 0
         ? Math.round(((thisMonthTotal - lastMonthTotal) / lastMonthTotal) * 100)
         : 0,
