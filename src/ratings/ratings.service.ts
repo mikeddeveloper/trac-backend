@@ -9,6 +9,7 @@ import { Repository } from 'typeorm';
 import { Rating, RatingRole } from './entities/rating.entity';
 import { Job, JobStatus } from '../jobs/entities/job.entity';
 import { PushService } from '../push/push.service';
+import { User } from '../users/entities/user.entity';
 
 @Injectable()
 export class RatingsService {
@@ -19,6 +20,8 @@ export class RatingsService {
     private ratingRepo: Repository<Rating>,
     @InjectRepository(Job)
     private jobRepo: Repository<Job>,
+    @InjectRepository(User)
+    private userRepo: Repository<User>,
     private pushService: PushService,
   ) {}
 
@@ -54,6 +57,16 @@ export class RatingsService {
 
     const rating = this.ratingRepo.create({ stars, comment, type, fromUserId, toUserId, jobId });
     const saved  = await this.ratingRepo.save(rating);
+
+    // Bid cards and profiles read these denormalized user fields.
+    const received = await this.ratingRepo.find({ where: { toUserId } });
+    const average = received.length
+      ? +(received.reduce((sum, item) => sum + Number(item.stars), 0) / received.length).toFixed(1)
+      : 0;
+    await this.userRepo.update(toUserId, {
+      rating: average,
+      totalRatings: received.length,
+    });
     this.logger.log(`⭐ Rating submitted: ${stars} stars for user ${toUserId}`);
 
     // ── Push: notify recipient of new rating ──
