@@ -29,10 +29,10 @@ export class PaymentsService {
   private readonly CASHBACK_MIN  = 10_000;
   private readonly VAT_RATE      = 0.075;
 
-  private commissionRate(distanceKm?: number): number {
-    if (!distanceKm || distanceKm < 10) return 0.10;
-    if (distanceKm <= 30)               return 0.09;
-    return 0.08;
+  private commissionRate(_distanceKm?: number): number {
+    // The platform default is a fixed 10%. Distance affects delivery pricing,
+    // not Trac's commission. An explicit admin setting may override this.
+    return 0.10;
   }
 
   constructor(

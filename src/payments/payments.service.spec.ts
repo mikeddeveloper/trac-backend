@@ -50,6 +50,11 @@ describe('PaymentsService launch protections', () => {
     });
   });
 
+  it('uses the fixed 10% default commission for every route distance', () => {
+    expect(service.calculatePayout(150, 100).tracCommission).toBe(15);
+    expect(service.calculatePayout(150, 100).transporterPayout).toBe(135);
+  });
+
   it('charges the accepted bid amount loaded from the database', async () => {
     await service.initializePayment('customer@example.com', job.id, job.customerId);
 
