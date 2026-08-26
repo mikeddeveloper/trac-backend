@@ -70,6 +70,11 @@ export class JobsController {
   }
 
   // ─── GET /jobs/:id ─────────────────────────────────────────────────────────
+  @Get(':id/editable')
+  async getEditability(@Param('id') id: string, @Req() req: any) {
+    return this.jobsService.getEditability(id, req.user.id);
+  }
+
   @Get(':id')
   async getJob(@Param('id') id: string, @Req() req: any) {
     const job = await this.jobsService.getJobById(id);
@@ -81,6 +86,12 @@ export class JobsController {
     const includeDetails = isParty || req.user.role === 'admin';
     const includeOtp = job.customerId === req.user.id || req.user.role === 'admin';
     return this.jobsService.toClientJob(job, includeDetails, includeOtp);
+  }
+
+  @Patch(':id')
+  async updateJob(@Param('id') id: string, @Req() req: any, @Body() body: any) {
+    const job = await this.jobsService.updateUnbidJob(id, req.user.id, body);
+    return this.jobsService.toClientJob(job, true);
   }
 
   @Post(':id/location')

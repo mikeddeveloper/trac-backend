@@ -20,6 +20,7 @@ import { EmailService } from '../email/email.service';
 import { PaymentsService } from '../payments/payments.service';
 import { createClient } from '@supabase/supabase-js';
 import { ConfigService } from '@nestjs/config';
+import { Bid } from '../bids/entities/bid.entity';
 
 const ALLOWED_TRANSITIONS: Record<JobStatus, JobStatus[]> = {
   [JobStatus.PENDING]:    [JobStatus.BIDDING, JobStatus.CANCELLED],
@@ -48,6 +49,8 @@ export class JobsService {
     private jobRepo: Repository<Job>,
     @InjectRepository(User)
     private userRepo: Repository<User>,
+    @InjectRepository(Bid)
+    private bidRepo: Repository<Bid>,
     private eventsGateway: EventsGateway,
     private pushService: PushService,
     private emailService: EmailService,
@@ -144,6 +147,40 @@ export class JobsService {
     const job = await this.jobRepo.findOne({ where: { id: jobId } });
     if (!job) throw new NotFoundException(`Job ${jobId} not found`);
     return job;
+  }
+
+  async getEditability(jobId: string, customerId: string) {
+    const job = await this.getJobById(jobId);
+    if (job.customerId !== customerId) throw new ForbiddenException('This is not your delivery');
+    const bidCount = await this.bidRepo.count({ where: { jobId } });
+    return {
+      editable: job.status === JobStatus.BIDDING && bidCount === 0,
+      bidCount,
+      reason: bidCount > 0 ? 'A transporter has already bid on this delivery' : job.status !== JobStatus.BIDDING ? 'This delivery is no longer open for editing' : null,
+    };
+  }
+
+  async updateUnbidJob(jobId: string, customerId: string, dto: Partial<Job>): Promise<Job> {
+    const allowed = [
+      'pickupAddress', 'pickupState', 'deliveryAddress', 'deliveryState',
+      'pickupNote', 'deliveryNote', 'recipientName', 'recipientPhone',
+      'pickupLat', 'pickupLng', 'deliveryLat', 'deliveryLng',
+      'cargoDescription', 'cargoWeight', 'cargoValue', 'vehicleType',
+      'deadline', 'specialInstructions', 'insurance', 'goodsCategory', 'distanceKm',
+    ] as const;
+    await this.jobRepo.manager.transaction(async manager => {
+      const job = await manager.findOne(Job, { where: { id: jobId }, lock: { mode: 'pessimistic_write' } });
+      if (!job) throw new NotFoundException('Delivery not found');
+      if (job.customerId !== customerId) throw new ForbiddenException('This is not your delivery');
+      if (job.status !== JobStatus.BIDDING) throw new BadRequestException('This delivery is no longer open for editing');
+      if (await manager.count(Bid, { where: { jobId } })) throw new BadRequestException('This delivery cannot be edited because a transporter has already bid');
+      const changes: Partial<Job> = {};
+      for (const key of allowed) if (key in dto) (changes as any)[key] = (dto as any)[key];
+      await manager.update(Job, jobId, changes);
+    });
+    const updated = await this.getJobById(jobId);
+    this.eventsGateway.broadcast('job:updated', { jobId, pickupState: updated.pickupState, deliveryState: updated.deliveryState });
+    return updated;
   }
 
   async updateTransporterLocation(

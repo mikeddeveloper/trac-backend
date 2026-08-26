@@ -11,10 +11,11 @@ import { EventsModule } from '../events/events.module';
 import { PushModule } from '../push/push.module';
 import { EmailModule } from '../email/email.module';
 import { PaymentsModule } from '../payments/payments.module';
+import { Bid } from '../bids/entities/bid.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Job, User]),
+    TypeOrmModule.forFeature([Job, User, Bid]),
     EventsModule, PushModule, EmailModule,
     forwardRef(() => PaymentsModule),
   ],
