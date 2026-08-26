@@ -176,7 +176,7 @@ export class EmailService {
     </div>
 
     <div style="text-align:center;margin-top:24px;">
-      <a href="https://www.traclogistics.com.ng/dashboard"
+      <a href="https://www.traclogistics.com.ng/dashboard/ratings"
          style="display:inline-block;background:#6EC89A;color:#1E3A5F;padding:14px 32px;border-radius:12px;font-weight:800;font-size:1rem;text-decoration:none;">
         ${isTransporter ? 'Complete Verification →' : 'Post Your First Delivery →'}
       </a>

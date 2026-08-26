@@ -39,7 +39,7 @@ export class PaymentsScheduler {
 
     for (const job of staleJobs) {
       const payment = await this.paymentRepo.findOne({
-        where: { jobId: job.id, status: PaymentStatus.SUCCESS },
+        where: { jobId: job.id, status: PaymentStatus.HELD },
       });
 
       if (!payment) continue;
@@ -47,7 +47,8 @@ export class PaymentsScheduler {
       this.logger.log(`🔓 Auto-releasing escrow for job ${job.id}`);
 
       try {
-        await this.paymentsService.releaseEscrow(job.id);
+        if (!job.transporterId) continue;
+        await this.paymentsService.approveWithdrawal(job.id, job.transporterId);
         this.logger.log(`✅ Auto-released job ${job.id}`);
       } catch (err: any) {
         if (err?.message?.includes('bank account')) {

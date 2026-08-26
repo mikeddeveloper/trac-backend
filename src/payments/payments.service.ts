@@ -680,8 +680,8 @@ export class PaymentsService {
     await this.paymentRepo.update(release.id, { status: PaymentStatus.FAILED, paystackMeta: data });
     if (release.jobId) {
       await this.paymentRepo.update(
-        { jobId: release.jobId, type: PaymentType.ESCROW, status: PaymentStatus.HELD },
-        { status: PaymentStatus.RELEASED },
+        { jobId: release.jobId, type: PaymentType.ESCROW, status: PaymentStatus.RELEASED },
+        { status: PaymentStatus.HELD },
       );
     }
     this.logger.warn(`${eventName}: ref=${data.reference}`);
@@ -783,22 +783,57 @@ export class PaymentsService {
   }
 
   // ─── Withdraw Earnings (transporter initiates payout) ───────────────────────
-  // Called when transporter clicks Withdraw on the Earnings page.
-  // This is where the actual Paystack transfer happens.
-
+  // Called when the transporter asks to withdraw. This records the request;
+  // the actual Paystack transfer is initiated only after admin approval.
   async withdrawEarnings(jobId: string, transporterId: string): Promise<{ message: string }> {
     const payment = await this.paymentRepo.findOne({
-      where: { jobId, status: PaymentStatus.RELEASED, type: PaymentType.ESCROW },
+      where: { jobId, status: PaymentStatus.SUCCESS, type: PaymentType.ESCROW },
     });
 
-    if (!payment) throw new NotFoundException('No available payout found for this job. Ensure the customer has confirmed delivery.');
+    if (!payment) {
+      const requested = await this.paymentRepo.findOne({
+        where: { jobId, status: PaymentStatus.HELD, type: PaymentType.ESCROW },
+      });
+      if (requested) return { message: 'Withdrawal request is already awaiting admin approval.' };
+      throw new NotFoundException('No earnings are ready for withdrawal for this job.');
+    }
 
     const job = await this.jobRepo.findOne({ where: { id: jobId } });
     if (!job || job.transporterId !== transporterId) throw new UnauthorizedException('This job does not belong to you');
 
+    if (job.status !== JobStatus.DELIVERED || !job.otpVerified || !job.customerConfirmed) {
+      throw new BadRequestException('Delivery must be completed and confirmed before requesting withdrawal');
+    }
+    if (!job.proofOfDeliveryUrl) throw new BadRequestException('Upload proof of delivery before requesting withdrawal');
+    if (job.disputeRaised) throw new BadRequestException('Payout is frozen while this job is disputed');
+
+    const transporter = await this.userRepo.findOne({ where: { id: transporterId } });
+    if (!transporter?.recipientCode) throw new BadRequestException('Please add your bank account in Earnings before withdrawing.');
+
+    const claimed = await this.paymentRepo.update(
+      { id: payment.id, status: PaymentStatus.SUCCESS },
+      { status: PaymentStatus.HELD },
+    );
+    if (!claimed.affected) throw new BadRequestException('This withdrawal has already been requested');
+
+    return { message: 'Withdrawal request submitted. An administrator will review and approve the bank transfer.' };
+  }
+
+  // Called by admin approval (and the 24-hour fallback scheduler).
+  // This is the only path that initiates the Paystack bank transfer.
+  async approveWithdrawal(jobId: string, transporterId: string): Promise<{ message: string }> {
+    const payment = await this.paymentRepo.findOne({
+      where: { jobId, status: PaymentStatus.HELD, type: PaymentType.ESCROW },
+    });
+    if (!payment) throw new NotFoundException('No pending withdrawal request found for this job');
+
+    const job = await this.jobRepo.findOne({ where: { id: jobId } });
+    if (!job || job.transporterId !== transporterId) throw new UnauthorizedException('Transporter does not match this job');
+    if (job.disputeRaised) throw new BadRequestException('Payout is frozen while this job is disputed');
+
     const transporter = await this.userRepo.findOne({ where: { id: transporterId } });
     const recipientCode = transporter?.recipientCode;
-    if (!recipientCode) throw new BadRequestException('Please add your bank account in Earnings before withdrawing.');
+    if (!recipientCode) throw new BadRequestException('Transporter has not configured a payout bank account.');
 
     const previousRelease = await this.paymentRepo.findOne({ where: { jobId, type: PaymentType.RELEASE } });
     if (previousRelease && previousRelease.status !== PaymentStatus.FAILED) {
@@ -817,8 +852,8 @@ export class PaymentsService {
     }
 
     const claimed = await this.paymentRepo.update(
-      { id: payment.id, status: PaymentStatus.RELEASED },
-      { status: PaymentStatus.HELD },
+      { id: payment.id, status: PaymentStatus.HELD },
+      { status: PaymentStatus.RELEASED },
     );
     if (!claimed.affected) throw new BadRequestException('This payout is already being processed');
 
@@ -878,13 +913,13 @@ export class PaymentsService {
         });
       }
       await this.paymentRepo.update(
-        { id: payment.id, status: PaymentStatus.HELD },
-        { status: PaymentStatus.RELEASED },
+        { id: payment.id, status: PaymentStatus.RELEASED },
+        { status: PaymentStatus.HELD },
       );
       const paystackError = (error as any)?.response?.data;
       const errorMsg = paystackError?.message || (error as any)?.message || 'Unknown error';
       this.logger.error(`❌ withdrawEarnings failed for job ${jobId}: ${errorMsg}`);
-      throw new BadRequestException(`Withdrawal failed: ${errorMsg}. Ensure your Paystack balance has sufficient funds.`);
+      throw new BadRequestException(`Withdrawal approval failed: ${errorMsg}. Ensure your Paystack balance has sufficient funds.`);
     }
   }
 
@@ -972,34 +1007,45 @@ export class PaymentsService {
       .andWhere('payment.type = :type', { type: PaymentType.ESCROW })
       .getMany();
 
-    // Jobs to include route info for available payments
-    const availablePayments = payments.filter(p => p.status === PaymentStatus.RELEASED);
-    const jobIds = availablePayments.map(p => p.jobId).filter(Boolean);
+    // Load delivery state so only genuinely completed jobs can request payout.
+    const jobIds = payments.map(p => p.jobId).filter(Boolean);
     let jobMap: Record<string, any> = {};
     if (jobIds.length > 0) {
       const jobs = await this.jobRepo.findByIds(jobIds);
       jobMap = Object.fromEntries(jobs.map(j => [j.id, j]));
     }
 
+    const canRequest = (p: Payment) => {
+      const job = jobMap[p.jobId];
+      return p.status === PaymentStatus.SUCCESS && job?.status === JobStatus.DELIVERED
+        && job.otpVerified && job.customerConfirmed && job.proofOfDeliveryUrl && !job.disputeRaised;
+    };
+    const availablePayments = payments.filter(canRequest);
+
     const pendingPayout = payments
-      .filter(p => p.status === PaymentStatus.SUCCESS)
+      .filter(p => p.status === PaymentStatus.SUCCESS && !canRequest(p))
       .reduce((s, p) => s + Number(p.transporterPayout || 0), 0);
 
     const availableToWithdraw = availablePayments
       .reduce((s, p) => s + Number(p.transporterPayout || 0), 0);
 
     const totalEarned = payments
-      .filter(p => p.status === PaymentStatus.HELD)
+      .filter(p => p.status === PaymentStatus.RELEASED)
       .reduce((s, p) => s + Number(p.transporterPayout || 0), 0);
 
     const totalCommissionPaid = payments
-      .filter(p => p.status === PaymentStatus.HELD)
+      .filter(p => p.status === PaymentStatus.RELEASED)
       .reduce((s, p) => s + Number(p.tracCommission || 0), 0);
+
+    const awaitingApproval = payments
+      .filter(p => p.status === PaymentStatus.HELD)
+      .reduce((s, p) => s + Number(p.transporterPayout || 0), 0);
 
     return {
       totalEarned,
       pendingPayout,
       availableToWithdraw,
+      awaitingApproval,
       availableJobs: availablePayments.map(p => ({
         jobId: p.jobId,
         amount: Number(p.transporterPayout || 0),

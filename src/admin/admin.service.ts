@@ -610,30 +610,15 @@ export class AdminService {
   async releasePayment(paymentId: string) {
     const payment = await this.paymentRepo.findOne({ where: { id: paymentId } });
     if (!payment) throw new Error('Payment not found');
-    if (payment.status === PaymentStatus.RELEASED) return { message: 'Payment is already approved for withdrawal', status: 'available' };
-    if (![PaymentStatus.SUCCESS, PaymentStatus.HELD].includes(payment.status)) {
-      throw new BadRequestException('Only a confirmed escrow payment can be approved for withdrawal');
-    }
+    if (payment.status === PaymentStatus.RELEASED) return { message: 'Withdrawal has already been approved', status: 'released' };
+    if (payment.status !== PaymentStatus.HELD) throw new BadRequestException('The transporter must request withdrawal before admin approval');
 
     const job = await this.jobRepo.findOne({ where: { id: (payment as any).jobId } });
     if (!job?.proofOfDeliveryUrl) throw new BadRequestException('Proof of delivery must be reviewed before approving withdrawal');
     if (!job.otpVerified || job.status !== JobStatus.DELIVERED) throw new BadRequestException('Delivery must be PIN-confirmed and marked delivered before approving withdrawal');
-    await this.paymentRepo.update(paymentId, { status: 'released' as any });
-    if (job?.transporterId) {
-      this.eventsGateway.notifyUser(job.transporterId, 'payment:available', {
-        amount: payment.amount,
-        message: `Payment of ₦${Number(payment.transporterPayout || payment.amount).toLocaleString()} is approved and available for withdrawal.`,
-      });
-      await this.pushService.sendToUser(job.transporterId, {
-        title: 'Payment ready for withdrawal',
-        body: `₦${Number(payment.transporterPayout || payment.amount).toLocaleString()} is available. Open Earnings to withdraw through Paystack.`,
-        url: '/dashboard/earnings',
-        tag: 'payout-available',
-        icon: '/icon-192.png',
-      }).catch(() => {});
-    }
-
-    return { message: 'Payment approved for withdrawal. The transporter can now withdraw through Paystack.', status: 'available' };
+    if (!job.transporterId) throw new BadRequestException('This delivery has no assigned transporter');
+    const result = await this.paymentsService.approveWithdrawal(job.id, job.transporterId);
+    return { ...result, status: 'released' };
   }
 
   // ─── Refund payment (admin) ───────────────────────────────────────────────────

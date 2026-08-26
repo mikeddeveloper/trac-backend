@@ -76,7 +76,7 @@ describe('PaymentsService launch protections', () => {
     expect(mockedAxios.post).not.toHaveBeenCalled();
   });
 
-  it('checks the Paystack balance and records a payout before initiating transfer', async () => {
+  it('checks the Paystack balance and records a payout after admin approval', async () => {
     const escrowPayment = {
       id: 'payment-1',
       jobId: job.id,
@@ -84,7 +84,7 @@ describe('PaymentsService launch protections', () => {
       amount: 125000,
       transporterPayout: 112500,
       tracCommission: 12500,
-      status: 'released',
+      status: PaymentStatus.HELD,
       type: 'escrow',
     };
     paymentRepo.findOne
@@ -94,7 +94,7 @@ describe('PaymentsService launch protections', () => {
     mockedAxios.get.mockResolvedValue({ data: { data: [{ currency: 'NGN', balance: 20_000_000 }] } });
     mockedAxios.post.mockResolvedValue({ data: { status: true, data: { status: 'pending' } } });
 
-    await service.withdrawEarnings(job.id, job.transporterId);
+    await service.approveWithdrawal(job.id, job.transporterId);
 
     expect(mockedAxios.get).toHaveBeenCalledWith(
       expect.stringContaining('/balance'),
@@ -107,6 +107,29 @@ describe('PaymentsService launch protections', () => {
     );
     expect(paymentRepo.save.mock.invocationCallOrder[0])
       .toBeLessThan(mockedAxios.post.mock.invocationCallOrder[0]);
+  });
+
+  it('records a transporter withdrawal request without calling Paystack', async () => {
+    const escrowPayment = {
+      id: 'payment-1', jobId: job.id, customerId: job.customerId,
+      amount: 125000, transporterPayout: 112500,
+      status: PaymentStatus.SUCCESS, type: PaymentType.ESCROW,
+    };
+    paymentRepo.findOne.mockResolvedValueOnce(escrowPayment);
+    jobRepo.findOne.mockResolvedValueOnce({
+      ...job, status: JobStatus.DELIVERED, otpVerified: true,
+      customerConfirmed: true, proofOfDeliveryUrl: 'https://proof.example/photo.jpg',
+    });
+    userRepo.findOne.mockResolvedValueOnce({ id: job.transporterId, recipientCode: 'RCP_test' });
+
+    const result = await service.withdrawEarnings(job.id, job.transporterId);
+
+    expect(paymentRepo.update).toHaveBeenCalledWith(
+      { id: escrowPayment.id, status: PaymentStatus.SUCCESS },
+      { status: PaymentStatus.HELD },
+    );
+    expect(mockedAxios.post).not.toHaveBeenCalled();
+    expect(result.message).toContain('admin');
   });
 
   it('submits a full refund to Paystack without marking escrow refunded prematurely', async () => {
