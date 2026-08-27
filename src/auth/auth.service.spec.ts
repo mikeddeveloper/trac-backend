@@ -1,5 +1,27 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service';
+import { UserRole } from '../users/entities/user.entity';
+
+describe('AuthService public signup role protections', () => {
+  it('rejects an admin role before looking up or creating an account', async () => {
+    const usersService = {
+      findByEmail: jest.fn(),
+      create: jest.fn(),
+    };
+    const service = new AuthService(usersService as any, {} as any, {} as any, {} as any);
+
+    await expect(service.signup({
+      fullName: 'Privilege Test',
+      email: 'attacker@example.com',
+      phone: '08000000000',
+      password: 'Password123!',
+      role: UserRole.ADMIN,
+    })).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(usersService.findByEmail).not.toHaveBeenCalled();
+    expect(usersService.create).not.toHaveBeenCalled();
+  });
+});
 
 describe('AuthService Google exchange codes', () => {
   const user = {

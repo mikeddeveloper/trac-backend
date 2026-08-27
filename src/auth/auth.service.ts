@@ -33,6 +33,15 @@ export class AuthService {
   ) {}
 
   async signup(dto: SignupDto) {
+    const publicRoles = new Set<UserRole>([
+      UserRole.CUSTOMER,
+      UserRole.TRANSPORTER,
+      UserRole.ENTERPRISE,
+    ]);
+    if (!publicRoles.has(dto.role)) {
+      this.logger.warn(`Blocked privileged role request on public signup: ${String(dto.role)}`);
+      throw new BadRequestException('This account role cannot be created through public signup');
+    }
     const email = dto.email.trim().toLowerCase();
     // Check if email already exists
     const existing = await this.usersService.findByEmail(email);
@@ -46,6 +55,8 @@ export class AuthService {
       ...dto,
       email,
       password: hashedPassword,
+      // Never allow object-spread changes to bypass the public-role check.
+      role: dto.role,
     });
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();

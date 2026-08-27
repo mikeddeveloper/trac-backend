@@ -1,4 +1,4 @@
-import { IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsIn, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { UserRole } from '../../users/entities/user.entity';
 
@@ -19,7 +19,9 @@ export class SignupDto {
   @MinLength(8)
   password: string;
 
-  @IsEnum(UserRole)
+  @IsIn([UserRole.CUSTOMER, UserRole.TRANSPORTER, UserRole.ENTERPRISE], {
+    message: 'role must be customer, transporter, or enterprise',
+  })
   role: UserRole;
 
   @IsOptional()
