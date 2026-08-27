@@ -349,6 +349,13 @@ export class AdminController {
     return this.adminService.restoreAdminAsTransporter(req.user.id, id);
   }
 
+  @Patch('admins/:id/remove')
+  @UseGuards(AuthGuard('jwt'))
+  async removeAdminAccess(@Request() req: any, @Param('id') id: string) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.removeAdminAccess(req.user.id, id);
+  }
+
   @Patch('license/:userId/expiry')
   @UseGuards(AuthGuard('jwt'))
   async updateLicenseExpiry(

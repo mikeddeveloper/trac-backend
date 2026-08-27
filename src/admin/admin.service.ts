@@ -999,6 +999,33 @@ export class AdminService {
     return { message: `${target.fullName} has been restored as a transporter and must sign in again` };
   }
 
+  async removeAdminAccess(requesterId: string, targetId: string) {
+    if (requesterId === targetId) {
+      throw new BadRequestException('You cannot remove your own administrator access');
+    }
+    const requester = await this.userRepo.findOne({ where: { id: requesterId } });
+    const requesterRoleRows = await this.userRepo.query(
+      'SELECT value FROM platform_settings WHERE key = $1 LIMIT 1',
+      [`adminRole:${requesterId}`],
+    );
+    const requesterAdminRole = requesterRoleRows[0]?.value ? String(requesterRoleRows[0].value) : 'super_admin';
+    if (!requester || requester.role !== UserRole.ADMIN || requesterAdminRole !== 'super_admin') {
+      throw new ForbiddenException('Only a super administrator can remove administrator access');
+    }
+    const target = await this.userRepo.findOne({ where: { id: targetId } });
+    if (!target || target.role !== UserRole.ADMIN) {
+      throw new NotFoundException('Administrator account not found');
+    }
+    await this.userRepo.update(target.id, {
+      role: UserRole.CUSTOMER,
+      refreshToken: null,
+      sessionVersion: Number(target.sessionVersion || 0) + 1,
+    } as any);
+    await this.userRepo.query('DELETE FROM platform_settings WHERE key = $1', [`adminRole:${target.id}`]);
+    this.logger.warn(`Administrator access removed from ${target.email} by ${requester.email}`);
+    return { message: `Administrator access removed from ${target.fullName}. Their active sessions have been revoked.` };
+  }
+
   // ─── Revoke verification ──────────────────────────────────────────────────────
 
   async revokeVerification(userId: string) {
