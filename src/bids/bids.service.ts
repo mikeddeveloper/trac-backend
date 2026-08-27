@@ -10,7 +10,7 @@ import { Repository } from 'typeorm';
 import { Bid, BidStatus } from './entities/bid.entity';
 import { User, UserRole } from '../users/entities/user.entity';
 import { JobsService } from '../jobs/jobs.service';
-import { JobStatus } from '../jobs/entities/job.entity';
+import { Job, JobStatus } from '../jobs/entities/job.entity';
 import { PushService } from '../push/push.service';
 import { EventsGateway } from '../events/events.gateway';
 import { EmailService } from '../email/email.service';
@@ -117,25 +117,36 @@ export class BidsService {
   }
 
   async acceptBid(bidId: string, customerId: string): Promise<Bid> {
-    const bid = await this.bidsRepo.findOne({
-      where: { id: bidId },
-      relations: ['job'],
+    const bid = await this.bidsRepo.manager.transaction(async manager => {
+      const selected = await manager.findOne(Bid, { where: { id: bidId } });
+      if (!selected) throw new NotFoundException('Bid not found');
+
+      const job = await manager.findOne(Job, {
+        where: { id: selected.jobId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!job) throw new NotFoundException('Job not found');
+      if (job.customerId !== customerId) throw new ForbiddenException('You do not own this job');
+      if (job.status !== JobStatus.BIDDING) {
+        throw new BadRequestException('This job already has an accepted bid');
+      }
+
+      await manager.update(Bid, selected.id, { status: BidStatus.ACCEPTED });
+      await manager.createQueryBuilder()
+        .update(Bid)
+        .set({ status: BidStatus.REJECTED })
+        .where('jobId = :jobId AND id != :bidId', { jobId: selected.jobId, bidId: selected.id })
+        .execute();
+      await manager.update(Job, job.id, {
+        transporterId: selected.transporterId,
+        acceptedAmount: selected.amount,
+        status: JobStatus.BID_SELECTED,
+      });
+
+      selected.status = BidStatus.ACCEPTED;
+      selected.job = job;
+      return selected;
     });
-    if (!bid) throw new NotFoundException('Bid not found');
-    if (bid.job.customerId !== customerId) throw new ForbiddenException('You do not own this job');
-    if (bid.job.status !== JobStatus.BIDDING) throw new BadRequestException('This job already has an accepted bid');
-
-    bid.status = BidStatus.ACCEPTED;
-    await this.bidsRepo.save(bid);
-
-    await this.bidsRepo
-      .createQueryBuilder()
-      .update(Bid)
-      .set({ status: BidStatus.REJECTED })
-      .where('jobId = :jobId AND id != :bidId', { jobId: bid.jobId, bidId })
-      .execute();
-
-    await this.jobsService.assignTransporter(bid.jobId, bid.transporterId, bid.amount);
 
     // ── Socket: notify transporter their bid was accepted in real-time ──
     this.eventsGateway.notifyUser(bid.transporterId, 'bid:accepted', {
@@ -155,6 +166,10 @@ export class BidsService {
       'View Delivery',
     );
 
+    // Do not allow eager relations to leak internal Job/User fields through
+    // the acceptance response. Clients only need the bid identifiers/state.
+    delete (bid as any).job;
+    delete (bid as any).transporter;
     return bid;
   }
 

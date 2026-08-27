@@ -107,7 +107,12 @@ describe('PaymentsService launch protections', () => {
     );
     expect(mockedAxios.post).toHaveBeenCalledWith(
       expect.stringContaining('/transfer'),
-      expect.objectContaining({ source: 'balance', amount: 11_250_000, recipient: 'RCP_test' }),
+      expect.objectContaining({
+        source: 'balance',
+        amount: 11_250_000,
+        recipient: 'RCP_test',
+        reference: 'trac_payout_job1',
+      }),
       expect.any(Object),
     );
     expect(paymentRepo.update).toHaveBeenCalledWith(
@@ -120,6 +125,26 @@ describe('PaymentsService launch protections', () => {
     );
     expect(paymentRepo.save.mock.invocationCallOrder[0])
       .toBeLessThan(mockedAxios.post.mock.invocationCallOrder[0]);
+  });
+
+  it('does not create another transfer while a payout is already pending', async () => {
+    const escrowPayment = {
+      id: 'payment-1', jobId: job.id, customerId: job.customerId,
+      amount: 125000, status: PaymentStatus.HELD, type: PaymentType.ESCROW,
+    };
+    paymentRepo.findOne
+      .mockResolvedValueOnce(escrowPayment)
+      .mockResolvedValueOnce({
+        id: 'release-1', jobId: job.id,
+        reference: 'trac_payout_job1',
+        status: PaymentStatus.PENDING,
+        type: PaymentType.RELEASE,
+      });
+    userRepo.findOne.mockResolvedValue({ id: job.transporterId, recipientCode: 'RCP_test' });
+
+    await expect(service.approveWithdrawal(job.id, job.transporterId))
+      .rejects.toThrow('already been initiated');
+    expect(mockedAxios.post).not.toHaveBeenCalled();
   });
 
   it('records a transporter withdrawal request without calling Paystack', async () => {

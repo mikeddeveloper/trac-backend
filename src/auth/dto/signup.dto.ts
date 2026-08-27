@@ -19,8 +19,8 @@ export class SignupDto {
   @MinLength(8)
   password: string;
 
-  @IsIn([UserRole.CUSTOMER, UserRole.TRANSPORTER, UserRole.ENTERPRISE], {
-    message: 'role must be customer, transporter, or enterprise',
+  @IsIn([UserRole.CUSTOMER, UserRole.TRANSPORTER], {
+    message: 'role must be customer or transporter',
   })
   role: UserRole;
 

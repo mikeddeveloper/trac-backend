@@ -4,6 +4,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { UsersService } from '../users/users.service';
+import { UserRole } from '../users/entities/user.entity';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -19,6 +20,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   async validate(req: Request, payload: any) {
     const userId = payload.id || payload.sub;
     const user = await this.usersService.findById(userId);
+    if (user.role === UserRole.ENTERPRISE) {
+      throw new UnauthorizedException('Enterprise access is not available yet');
+    }
     const path = (req.originalUrl || req.path).split('?')[0];
     const suspensionRecoveryPath = path.startsWith('/api/verification/') || path.endsWith('/api/auth/me') || path.endsWith('/api/auth/logout');
     if (user.isSuspended && !suspensionRecoveryPath) throw new UnauthorizedException('Account suspended');

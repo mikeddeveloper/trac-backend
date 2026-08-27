@@ -36,7 +36,6 @@ export class AuthService {
     const publicRoles = new Set<UserRole>([
       UserRole.CUSTOMER,
       UserRole.TRANSPORTER,
-      UserRole.ENTERPRISE,
     ]);
     if (!publicRoles.has(dto.role)) {
       this.logger.warn(`Blocked privileged role request on public signup: ${String(dto.role)}`);
@@ -120,6 +119,8 @@ export class AuthService {
 
     if (user.isSuspended)
       throw new UnauthorizedException('Account is suspended');
+    if (user.role === UserRole.ENTERPRISE)
+      throw new UnauthorizedException('Enterprise access is not available yet');
     if (!user.password) {
       throw new UnauthorizedException(
         'This account uses Google sign-in. Continue with Google instead.',
@@ -184,7 +185,7 @@ export class AuthService {
     }
 
     const user = await this.usersService.findById(payload.sub);
-    if (user.isSuspended || !user.refreshToken) {
+    if (user.isSuspended || user.role === UserRole.ENTERPRISE || !user.refreshToken) {
       throw new UnauthorizedException('Session has been revoked');
     }
     if (Number(payload.sv ?? -1) !== Number(user.sessionVersion || 0)) {
@@ -226,6 +227,8 @@ export class AuthService {
     const user = await this.usersService.findById(entry.userId);
     if (user.isSuspended)
       throw new UnauthorizedException('Account is suspended');
+    if (user.role === UserRole.ENTERPRISE)
+      throw new UnauthorizedException('Enterprise access is not available yet');
     const tokens = await this.generateTokens(user.id, user.email, user.role);
     return {
       user: {
@@ -272,6 +275,8 @@ export class AuthService {
       }
     }
 
+    if (user.role === UserRole.ENTERPRISE)
+      throw new UnauthorizedException('Enterprise access is not available yet');
     const tokens = await this.generateTokens(user.id, user.email, user.role);
 
     return {
@@ -365,10 +370,11 @@ export class AuthService {
 
     const crypto = require('crypto');
     const token = crypto.randomBytes(32).toString('hex');
+    const tokenHash = createHash('sha256').update(token).digest('hex');
     const expiry = new Date(Date.now() + 60 * 60 * 1000);
 
     await this.usersService.updateProfile(user.id, {
-      passwordResetToken: token,
+      passwordResetToken: tokenHash,
       passwordResetExpiry: expiry,
     } as any);
 
@@ -391,7 +397,14 @@ export class AuthService {
   }
 
   async resetPassword(token: string, newPassword: string) {
-    const user = await this.usersService.findByPasswordResetToken(token);
+    if (!token || typeof token !== 'string' || token.length !== 64) {
+      throw new BadRequestException('Invalid or expired reset link.');
+    }
+    if (!newPassword || newPassword.length < 8) {
+      throw new BadRequestException('Password must be at least 8 characters.');
+    }
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const user = await this.usersService.findByPasswordResetToken(tokenHash);
     if (!user) throw new BadRequestException('Invalid or expired reset link.');
 
     if (new Date() > new Date((user as any).passwordResetExpiry)) {

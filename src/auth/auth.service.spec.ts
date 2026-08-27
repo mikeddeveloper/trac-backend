@@ -1,9 +1,12 @@
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { UserRole } from '../users/entities/user.entity';
+import { createHash } from 'crypto';
 
 describe('AuthService public signup role protections', () => {
-  it('rejects an admin role before looking up or creating an account', async () => {
+  it.each([UserRole.ADMIN, UserRole.ENTERPRISE])(
+    'rejects the %s role before looking up or creating an account',
+    async (role) => {
     const usersService = {
       findByEmail: jest.fn(),
       create: jest.fn(),
@@ -15,12 +18,13 @@ describe('AuthService public signup role protections', () => {
       email: 'attacker@example.com',
       phone: '08000000000',
       password: 'Password123!',
-      role: UserRole.ADMIN,
+      role,
     })).rejects.toBeInstanceOf(BadRequestException);
 
     expect(usersService.findByEmail).not.toHaveBeenCalled();
     expect(usersService.create).not.toHaveBeenCalled();
-  });
+    },
+  );
 });
 
 describe('AuthService Google exchange codes', () => {
@@ -98,5 +102,34 @@ describe('AuthService password login', () => {
 
     await expect(service.login({ email: 'user@example.com', password: 'anything' }))
       .rejects.toThrow('This account uses Google sign-in');
+  });
+});
+
+describe('AuthService password reset protections', () => {
+  it('stores a hash of the emailed reset token', async () => {
+    const usersService = {
+      findByEmail: jest.fn().mockResolvedValue({ id: 'user-1', email: 'user@example.com', fullName: 'User' }),
+      updateProfile: jest.fn().mockResolvedValue(undefined),
+    };
+    const emailService = { sendPasswordResetEmail: jest.fn().mockResolvedValue({ success: true }) };
+    const configService = { get: jest.fn().mockReturnValue('https://trac.example') };
+    const service = new AuthService(usersService as any, {} as any, configService as any, emailService as any);
+
+    await service.forgotPassword('user@example.com');
+
+    const stored = usersService.updateProfile.mock.calls[0][1].passwordResetToken;
+    const resetUrl = emailService.sendPasswordResetEmail.mock.calls[0][1] as string;
+    const rawToken = new URL(resetUrl).searchParams.get('token') as string;
+    expect(stored).toBe(createHash('sha256').update(rawToken).digest('hex'));
+    expect(stored).not.toBe(rawToken);
+  });
+
+  it('rejects malformed reset tokens before querying the database', async () => {
+    const usersService = { findByPasswordResetToken: jest.fn() };
+    const service = new AuthService(usersService as any, {} as any, {} as any, {} as any);
+
+    await expect(service.resetPassword('short', 'Password123!'))
+      .rejects.toBeInstanceOf(BadRequestException);
+    expect(usersService.findByPasswordResetToken).not.toHaveBeenCalled();
   });
 });

@@ -849,7 +849,10 @@ export class PaymentsService {
     );
     if (!claimed.affected) throw new BadRequestException('This payout is already being processed');
 
-    const transferRef = `trac_payout_${jobId.replace(/-/g, '').slice(0, 18)}_${Date.now()}`;
+    // One job always uses one Paystack reference. If our connection times out
+    // after Paystack receives the request, a retry must not create a second
+    // transfer with a new reference.
+    const transferRef = `trac_payout_${jobId.replace(/-/g, '')}`;
     const releaseRecord = this.paymentRepo.create({
       reference: transferRef,
       amount: payoutAmount,
@@ -862,6 +865,7 @@ export class PaymentsService {
       customerCashback: payment.customerCashback,
     });
 
+    let definitivelyRejected = false;
     try {
       await this.paymentRepo.save(releaseRecord);
       const transferResponse = await axios.post(
@@ -876,11 +880,14 @@ export class PaymentsService {
         { headers: this.headers },
       );
 
-      if (transferResponse.data?.status !== true || transferResponse.data?.data?.status === 'otp') {
+      if (transferResponse.data?.status !== true) {
+        definitivelyRejected = true;
+        throw new Error(transferResponse.data?.message || 'Paystack rejected the transfer');
+      }
+
+      if (transferResponse.data?.data?.status === 'otp') {
         throw new Error(
-          transferResponse.data?.data?.status === 'otp'
-            ? 'Paystack transfer confirmation OTP is still enabled'
-            : transferResponse.data?.message || 'Paystack rejected the transfer',
+          'Paystack accepted the transfer but confirmation OTP is still enabled',
         );
       }
 
@@ -898,19 +905,33 @@ export class PaymentsService {
 
       return { message: `₦${payoutAmount.toLocaleString('en-NG')} withdrawal initiated. Arrives in your bank shortly.` };
     } catch (error) {
+      const httpStatus = axios.isAxiosError(error) ? error.response?.status : undefined;
+      const conclusiveClientError = httpStatus !== undefined && httpStatus >= 400 && httpStatus < 500;
+      const safeToRetry = definitivelyRejected || conclusiveClientError;
+
       if (releaseRecord.id) {
         await this.paymentRepo.update(releaseRecord.id, {
-          status: PaymentStatus.FAILED,
+          // A timeout, server error, or OTP response may mean Paystack already
+          // has the transfer. Keep it pending so another approval cannot pay
+          // the transporter twice. Reconcile it by this same reference.
+          status: safeToRetry ? PaymentStatus.FAILED : PaymentStatus.PENDING,
           paystackMeta: (error as any)?.response?.data || { message: (error as any)?.message },
         });
       }
-      await this.paymentRepo.update(
-        { id: payment.id, status: PaymentStatus.RELEASED },
-        { status: PaymentStatus.HELD },
-      );
+      if (safeToRetry) {
+        await this.paymentRepo.update(
+          { id: payment.id, status: PaymentStatus.RELEASED },
+          { status: PaymentStatus.HELD },
+        );
+      }
       const paystackError = (error as any)?.response?.data;
       const errorMsg = paystackError?.message || (error as any)?.message || 'Unknown error';
       this.logger.error(`❌ withdrawEarnings failed for job ${jobId}: ${errorMsg}`);
+      if (!safeToRetry) {
+        throw new BadRequestException(
+          `Paystack may still be processing this withdrawal. Do not approve it again; reconcile reference ${transferRef}.`,
+        );
+      }
       throw new BadRequestException(`Withdrawal approval failed: ${errorMsg}. Ensure your Paystack balance has sufficient funds.`);
     }
   }
