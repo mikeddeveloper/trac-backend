@@ -35,6 +35,28 @@ export class AdminService {
     private paymentsService: PaymentsService,
   ) {}
 
+  private async resolveAdminRole(user: User | null): Promise<string | null> {
+    if (!user || user.role !== UserRole.ADMIN) return null;
+    const rows = await this.userRepo.query(
+      'SELECT value FROM platform_settings WHERE key = $1 LIMIT 1',
+      [`adminRole:${user.id}`],
+    );
+    if (rows[0]?.value) return String(rows[0].value);
+
+    // One-time migration for the original platform owner. All other legacy or
+    // unexpected admin accounts remain unassigned and receive no super-admin powers.
+    const ownerEmail = String(process.env.ADMIN_EMAIL || 'mikeddev6@gmail.com').trim().toLowerCase();
+    if (user.email.trim().toLowerCase() !== ownerEmail) return null;
+    await this.getSettings();
+    await this.userRepo.query(
+      `INSERT INTO platform_settings (key, value, updated_at) VALUES ($1, $2::jsonb, now())
+       ON CONFLICT (key) DO NOTHING`,
+      [`adminRole:${user.id}`, JSON.stringify('super_admin')],
+    );
+    this.logger.warn(`Migrated explicit super-admin role for configured owner ${user.email}`);
+    return 'super_admin';
+  }
+
   // ─── Platform overview ───────────────────────────────────────────────────────
 
   async getPlatformOverview() {
@@ -930,12 +952,17 @@ export class AdminService {
       "SELECT key, value FROM platform_settings WHERE key LIKE 'adminRole:%'",
     );
     const roles = new Map(roleRows.map(row => [row.key.slice('adminRole:'.length), String(row.value)]));
+    for (const admin of admins) await this.resolveAdminRole(admin);
+    const refreshedRoleRows: { key: string; value: string }[] = await this.userRepo.query(
+      "SELECT key, value FROM platform_settings WHERE key LIKE 'adminRole:%'",
+    );
+    const refreshedRoles = new Map(refreshedRoleRows.map(row => [row.key.slice('adminRole:'.length), String(row.value)]));
     return admins.map(u => ({
       id: u.id,
       fullName: u.fullName,
       email: u.email,
       status: u.isSuspended ? 'suspended' : 'active',
-      adminRole: roles.get(u.id) || 'super_admin',
+      adminRole: refreshedRoles.get(u.id) || roles.get(u.id) || 'unassigned',
       createdAt: u.createdAt,
       lastLogin: (u as any).lastLogin || null,
     }));
@@ -946,11 +973,7 @@ export class AdminService {
     if (!allowedRoles.has(adminRole)) throw new BadRequestException('Invalid administrator role');
     const requester = await this.userRepo.findOne({ where: { id: requesterId } });
     await this.getSettings();
-    const requesterRoleRows = await this.userRepo.query(
-      "SELECT value FROM platform_settings WHERE key = $1 LIMIT 1",
-      [`adminRole:${requesterId}`],
-    );
-    const requesterAdminRole = requesterRoleRows[0]?.value ? String(requesterRoleRows[0].value) : 'super_admin';
+    const requesterAdminRole = await this.resolveAdminRole(requester);
     if (!requester || requester.role !== UserRole.ADMIN || requesterAdminRole !== 'super_admin') {
       throw new ForbiddenException('Only a super administrator can assign administrator roles');
     }
@@ -977,11 +1000,7 @@ export class AdminService {
 
   async restoreAdminAsTransporter(requesterId: string, targetId: string) {
     const requester = await this.userRepo.findOne({ where: { id: requesterId } });
-    const requesterRoleRows = await this.userRepo.query(
-      "SELECT value FROM platform_settings WHERE key = $1 LIMIT 1",
-      [`adminRole:${requesterId}`],
-    );
-    const requesterAdminRole = requesterRoleRows[0]?.value ? String(requesterRoleRows[0].value) : 'super_admin';
+    const requesterAdminRole = await this.resolveAdminRole(requester);
     if (!requester || requester.role !== UserRole.ADMIN || requesterAdminRole !== 'super_admin') {
       throw new ForbiddenException('Only a super administrator can remove administrator access');
     }
@@ -1004,11 +1023,7 @@ export class AdminService {
       throw new BadRequestException('You cannot remove your own administrator access');
     }
     const requester = await this.userRepo.findOne({ where: { id: requesterId } });
-    const requesterRoleRows = await this.userRepo.query(
-      'SELECT value FROM platform_settings WHERE key = $1 LIMIT 1',
-      [`adminRole:${requesterId}`],
-    );
-    const requesterAdminRole = requesterRoleRows[0]?.value ? String(requesterRoleRows[0].value) : 'super_admin';
+    const requesterAdminRole = await this.resolveAdminRole(requester);
     if (!requester || requester.role !== UserRole.ADMIN || requesterAdminRole !== 'super_admin') {
       throw new ForbiddenException('Only a super administrator can remove administrator access');
     }
