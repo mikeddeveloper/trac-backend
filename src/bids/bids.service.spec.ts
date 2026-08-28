@@ -47,6 +47,7 @@ describe('BidsService acceptance protections', () => {
     const result = await service.acceptBid(bid.id, job.customerId);
 
     expect(manager.findOne).toHaveBeenNthCalledWith(2, expect.anything(), expect.objectContaining({
+      loadEagerRelations: false,
       lock: { mode: 'pessimistic_write' },
     }));
     expect(manager.update).toHaveBeenCalledWith(expect.anything(), job.id, expect.objectContaining({

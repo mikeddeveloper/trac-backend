@@ -118,11 +118,17 @@ export class BidsService {
 
   async acceptBid(bidId: string, customerId: string): Promise<Bid> {
     const bid = await this.bidsRepo.manager.transaction(async manager => {
-      const selected = await manager.findOne(Bid, { where: { id: bidId } });
+      const selected = await manager.findOne(Bid, {
+        where: { id: bidId },
+        loadEagerRelations: false,
+      });
       if (!selected) throw new NotFoundException('Bid not found');
 
       const job = await manager.findOne(Job, {
         where: { id: selected.jobId },
+        // Job has eager customer/transporter relations. Loading those creates
+        // outer joins that PostgreSQL cannot include in a FOR UPDATE lock.
+        loadEagerRelations: false,
         lock: { mode: 'pessimistic_write' },
       });
       if (!job) throw new NotFoundException('Job not found');
