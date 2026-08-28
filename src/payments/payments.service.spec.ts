@@ -21,6 +21,7 @@ describe('PaymentsService launch protections', () => {
     create: jest.fn((value) => value),
     save: jest.fn(async (value) => value),
     update: jest.fn().mockResolvedValue({ affected: 1 }),
+    manager: { findOne: jest.fn().mockResolvedValue(null) },
   };
   const jobRepo = { findOne: jest.fn(), update: jest.fn().mockResolvedValue({ affected: 1 }) };
   const userRepo = { findOne: jest.fn() };
@@ -37,7 +38,7 @@ describe('PaymentsService launch protections', () => {
     jobRepo as any,
     userRepo as any,
     { notifyUser: jest.fn() } as any,
-    {} as any,
+    { sendToUser: jest.fn().mockResolvedValue(undefined) } as any,
     {} as any,
   );
 
@@ -145,6 +146,36 @@ describe('PaymentsService launch protections', () => {
     await expect(service.approveWithdrawal(job.id, job.transporterId))
       .rejects.toThrow('already been initiated');
     expect(mockedAxios.post).not.toHaveBeenCalled();
+  });
+
+  it('verifies a signed charge with Paystack and repairs the paid job on replay', async () => {
+    const payment = {
+      id: 'payment-1', reference: 'TRAC-job-1-test', jobId: job.id,
+      customerId: job.customerId, amount: 125000, currency: 'NGN',
+      status: PaymentStatus.SUCCESS, type: PaymentType.ESCROW,
+    };
+    paymentRepo.findOne.mockResolvedValueOnce(payment);
+    jobRepo.findOne.mockResolvedValueOnce({
+      ...job,
+      status: JobStatus.PAYMENT_PENDING,
+      transporterId: job.transporterId,
+    });
+    mockedAxios.get.mockResolvedValueOnce({ data: { data: {
+      reference: payment.reference,
+      amount: 12_500_000,
+      currency: 'NGN',
+      status: 'success',
+      paid_at: new Date().toISOString(),
+      metadata: { jobId: job.id, customerId: job.customerId },
+    } } });
+
+    await (service as any).handleChargeSuccess({ reference: payment.reference });
+
+    expect(mockedAxios.get).toHaveBeenCalledWith(
+      expect.stringContaining(`/transaction/verify/${payment.reference}`),
+      expect.any(Object),
+    );
+    expect(jobRepo.update).toHaveBeenCalledWith(job.id, { status: JobStatus.ACCEPTED });
   });
 
   it('records a transporter withdrawal request without calling Paystack', async () => {

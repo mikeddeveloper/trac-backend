@@ -569,10 +569,10 @@ export class PaymentsService {
   }
 
   private async handleChargeSuccess(data: any): Promise<void> {
-    const { reference, amount, paid_at, metadata } = data;
+    const { reference } = data;
     this.logger.log(`✅ charge.success: ref=${reference}`);
 
-    if (metadata?.purpose === 'wallet_topup') {
+    if (data.metadata?.purpose === 'wallet_topup') {
       const credited = await this.creditVerifiedTopup(data);
       if (!credited) this.logger.error(`Ignoring invalid wallet top-up ${reference}`);
       return;
@@ -584,9 +584,25 @@ export class PaymentsService {
       return;
     }
 
+    // A valid webhook signature proves who sent the event. Verifying the
+    // reference with Paystack also proves its current status and canonical
+    // amount/metadata before Trac changes financial state.
+    const verification = await axios.get(
+      `${this.paystackUrl}/transaction/verify/${encodeURIComponent(reference)}`,
+      { headers: this.headers },
+    );
+    const verified = verification.data?.data;
+    if (!verified || verified.status !== 'success') {
+      this.logger.warn(`Ignoring unconfirmed charge.success for ${reference}`);
+      return;
+    }
+
+    const { amount, paid_at, metadata } = verified;
+
     if (
       Number(amount) !== Math.round(Number(payment.amount) * 100) ||
-      data.currency !== payment.currency ||
+      verified.reference !== payment.reference ||
+      verified.currency !== payment.currency ||
       metadata?.jobId !== payment.jobId ||
       metadata?.customerId !== payment.customerId
     ) {
@@ -594,14 +610,19 @@ export class PaymentsService {
       return;
     }
 
-    if (payment.status === PaymentStatus.SUCCESS) return;
+    if ([PaymentStatus.SUCCESS, PaymentStatus.HELD, PaymentStatus.RELEASED].includes(payment.status)) {
+      // Replays are idempotent, but can safely repair a job whose earlier
+      // state transition was interrupted after the payment was recorded.
+      await this.activatePaidJob(payment);
+      return;
+    }
 
     await this.paymentRepo.update({ reference }, {
       status: PaymentStatus.SUCCESS,
       paidAt: new Date(paid_at),
-      paystackMeta: data,
+      paystackMeta: verified,
     });
-    await this.activatePaidJob({ ...payment, status: PaymentStatus.SUCCESS, paidAt: new Date(paid_at), paystackMeta: data });
+    await this.activatePaidJob({ ...payment, status: PaymentStatus.SUCCESS, paidAt: new Date(paid_at), paystackMeta: verified });
 
     this.logger.log(`💰 Payment ${reference} → SUCCESS`);
 
