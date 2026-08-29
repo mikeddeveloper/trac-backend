@@ -56,6 +56,8 @@ export class AuthService {
       password: hashedPassword,
       // Never allow object-spread changes to bypass the public-role check.
       role: dto.role,
+      // A licence is not pending until its document and details are submitted.
+      licenseStatus: 'not_submitted',
     });
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();

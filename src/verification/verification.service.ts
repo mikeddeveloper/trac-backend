@@ -2,7 +2,7 @@ import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { User } from '../users/entities/user.entity';
+import { User, UserRole } from '../users/entities/user.entity';
 import { EventsGateway } from '../events/events.gateway';
 import { PushService } from '../push/push.service';
 import { EmailService } from '../email/email.service';
@@ -131,7 +131,9 @@ export class VerificationService {
 
       await this.userRepo.update(userId, {
         kycStatus: verified ? 'approved' : 'rejected',
-        isVerified: verified,
+        isVerified: user.role === UserRole.TRANSPORTER
+          ? verified && (user as any).licenseStatus === 'approved'
+          : verified,
         kycTier: verified ? 1 : 0,
         kycCompletedAt: verified ? new Date() : null,
         ninVerified: data.idType === 'nin' ? verified : ((user as any).ninVerified || false),
@@ -177,8 +179,12 @@ export class VerificationService {
   }
 
   async confirmVerification(userId: string, _verifiedData: any) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new BadRequestException('User not found');
     await this.userRepo.update(userId, {
-      isVerified: true,
+      isVerified: user.role === UserRole.TRANSPORTER
+        ? (user as any).licenseStatus === 'approved'
+        : true,
       kycStatus: 'approved',
       kycTier: 1,
       kycCompletedAt: new Date(),
@@ -237,8 +243,15 @@ export class VerificationService {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) throw new BadRequestException('User not found');
 
+    // Older accounts inherited "pending" before they submitted a document.
+    const hasSubmission = Boolean((user as any).licenseSubmittedAt && (user as any).licensePhotoUrl);
+    const storedStatus = (user as any).licenseStatus;
+    const licenseStatus = storedStatus === 'pending' && !hasSubmission
+      ? 'not_submitted'
+      : storedStatus || 'not_submitted';
+
     return {
-      licenseStatus: (user as any).licenseStatus || 'not_submitted',
+      licenseStatus,
       licenseNumber: (user as any).licenseNumber || null,
       licenseExpiry: (user as any).licenseExpiry || null,
       licenseSubmittedAt: (user as any).licenseSubmittedAt || null,
@@ -275,6 +288,7 @@ export class VerificationService {
     await this.userRepo.update(userId, {
       licenseStatus: 'approved',
       licenseVerified: true,
+      isVerified: true,
       kycTier: 2,
     } as any);
 

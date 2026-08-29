@@ -798,10 +798,11 @@ export class AdminService {
   // ─── Pending license submissions ─────────────────────────────────────────────
 
   async getPendingLicenses() {
-    const pending = await this.userRepo.find({
+    const candidates = await this.userRepo.find({
       where: { role: 'transporter' as any, licenseStatus: 'pending' } as any,
       order: { licenseSubmittedAt: 'DESC' } as any,
     });
+    const pending = candidates.filter(u => Boolean(u.licenseSubmittedAt && u.licensePhotoUrl));
 
     return pending.map(u => ({
       id: u.id,
@@ -823,10 +824,11 @@ export class AdminService {
   // ─── Pending verifications ────────────────────────────────────────────────────
 
   async getPendingVerifications() {
-    const pending = await this.userRepo.find({
-      where: { role: 'transporter' as any, isVerified: false },
+    const transporters = await this.userRepo.find({
+      where: { role: 'transporter' as any },
       order: { createdAt: 'DESC' },
     });
+    const pending = transporters.filter(u => !(u.ninVerified && u.licenseStatus === 'approved'));
 
     return pending.map(u => ({
       _id: u.id,
@@ -853,7 +855,7 @@ export class AdminService {
 
   async getApprovedVerifications() {
     const approved = await this.userRepo.find({
-      where: { role: 'transporter' as any, isVerified: true },
+      where: { role: 'transporter' as any, isVerified: true, ninVerified: true, licenseStatus: 'approved' } as any,
       order: { createdAt: 'DESC' },
     });
 
@@ -882,7 +884,8 @@ export class AdminService {
     if (!user) throw new Error('User not found');
 
     await this.userRepo.update(userId, {
-      isVerified: true,
+      isVerified: user.licenseStatus === 'approved',
+      ninVerified: true,
       kycStatus: 'approved',
       kycTier: 1,
       kycCompletedAt: new Date(),
