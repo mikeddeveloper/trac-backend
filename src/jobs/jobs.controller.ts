@@ -15,6 +15,8 @@ import {
   UploadedFile,
   BadRequestException,
   ForbiddenException,
+  ParseUUIDPipe,
+  Query,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -22,6 +24,7 @@ import { Throttle } from '@nestjs/throttler';
 import { JobsService } from './jobs.service';
 import { JobStatus } from './entities/job.entity';
 import { detectSafeImage } from '../common/security/image-signature';
+import { SearchJobsQueryDto } from './dto/search-jobs-query.dto';
 
 @Controller('jobs')
 @UseGuards(AuthGuard('jwt'))
@@ -69,14 +72,32 @@ export class JobsController {
     return [...asCustomer, ...asTransporter].map((job) => this.jobsService.toClientJob(job, true));
   }
 
+  @Get('search')
+  async searchJobs(@Req() req: any, @Query() query: SearchJobsQueryDto) {
+    if (!['transporter', 'admin'].includes(req.user.role)) {
+      throw new ForbiddenException('Transporter access required');
+    }
+    const jobs = await this.jobsService.searchOpenJobs(query.search);
+    return jobs.map(job => this.jobsService.toClientJob(job, false));
+  }
+
+  @Get('available')
+  async getAvailableJobs(@Req() req: any, @Query() query: SearchJobsQueryDto) {
+    if (!['transporter', 'admin'].includes(req.user.role)) {
+      throw new ForbiddenException('Transporter access required');
+    }
+    const jobs = await this.jobsService.searchOpenJobs(query.search);
+    return jobs.map(job => this.jobsService.toClientJob(job, false));
+  }
+
   // ─── GET /jobs/:id ─────────────────────────────────────────────────────────
   @Get(':id/editable')
-  async getEditability(@Param('id') id: string, @Req() req: any) {
+  async getEditability(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string, @Req() req: any) {
     return this.jobsService.getEditability(id, req.user.id);
   }
 
   @Get(':id')
-  async getJob(@Param('id') id: string, @Req() req: any) {
+  async getJob(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string, @Req() req: any) {
     const job = await this.jobsService.getJobById(id);
     const isParty = job.customerId === req.user.id || job.transporterId === req.user.id;
     const canBrowse = job.status === JobStatus.BIDDING && req.user.role === 'transporter';
@@ -89,14 +110,14 @@ export class JobsController {
   }
 
   @Patch(':id')
-  async updateJob(@Param('id') id: string, @Req() req: any, @Body() body: any) {
+  async updateJob(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string, @Req() req: any, @Body() body: any) {
     const job = await this.jobsService.updateUnbidJob(id, req.user.id, body);
     return this.jobsService.toClientJob(job, true);
   }
 
   @Post(':id/location')
   async updateLocation(
-    @Param('id') id: string,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
     @Req() req: any,
     @Body() body: { lat: number; lng: number; accuracy?: number; speed?: number },
   ) {
@@ -106,7 +127,7 @@ export class JobsController {
   // ─── PATCH /jobs/:id/status ────────────────────────────────────────────────
   @Patch(':id/status')
   async updateStatus(
-    @Param('id') id: string,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
     @Req() req: any,
     @Body() body: { status: JobStatus; note?: string },
   ) {
@@ -117,10 +138,42 @@ export class JobsController {
     return this.jobsService.toClientJob(job, true, role !== 'transporter');
   }
 
+  // A transporter can start a trip only by recording photographic evidence
+  // of the physical pickup. The generic status endpoint cannot bypass this.
+  @Post(':id/pickup')
+  @UseInterceptors(FileInterceptor('pickupPhoto', {
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
+      allowed.includes(file.mimetype)
+        ? cb(null, true)
+        : cb(new BadRequestException('Only image files are allowed (jpg, png, webp)'), false);
+    },
+  }))
+  async confirmPickup(
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Req() req: any,
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: { lat?: string; lng?: string },
+  ) {
+    if (!file) throw new BadRequestException('Take or upload a pickup photo to start the delivery');
+    const verifiedMime = detectSafeImage(file.buffer);
+    if (!verifiedMime) throw new BadRequestException('The pickup photo is not a valid JPEG, PNG, or WebP image');
+    const job = await this.jobsService.confirmPickup(
+      id,
+      req.user.id,
+      file.buffer,
+      verifiedMime,
+      body.lat === undefined ? undefined : Number(body.lat),
+      body.lng === undefined ? undefined : Number(body.lng),
+    );
+    return this.jobsService.toClientJob(job, true, false);
+  }
+
   // ─── POST /jobs/:id/generate-otp ──────────────────────────────────────────
   @Post(':id/generate-otp')
   @Throttle({ default: { limit: 3, ttl: 60000 } })
-  async generateOtp(@Param('id') id: string, @Req() req: any) {
+  async generateOtp(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string, @Req() req: any) {
     return this.jobsService.generateDeliveryOtp(id, req.user.id);
   }
 
@@ -128,7 +181,7 @@ export class JobsController {
   @Post(':id/verify-otp')
   @Throttle({ default: { limit: 8, ttl: 60000 } })
   async verifyOtp(
-    @Param('id') id: string,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
     @Req() req: any,
     @Body() body: { otp: string },
   ) {
@@ -137,14 +190,14 @@ export class JobsController {
 
   // ─── POST /jobs/:id/confirm-receipt ──────────────────────────────────────
   @Post(':id/confirm-receipt')
-  async confirmReceipt(@Param('id') id: string, @Req() req: any) {
+  async confirmReceipt(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string, @Req() req: any) {
     return this.jobsService.confirmReceipt(id, req.user.id);
   }
 
   // ─── POST /jobs/:id/dispute ───────────────────────────────────────────────
   @Post(':id/dispute')
   async raiseDispute(
-    @Param('id') id: string,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
     @Req() req: any,
     @Body() body: { reason: string },
   ) {
@@ -170,7 +223,7 @@ export class JobsController {
     },
   }))
   async uploadProof(
-    @Param('id') id: string,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
     @Req() req: any,
     @UploadedFile() file: Express.Multer.File,
   ) {

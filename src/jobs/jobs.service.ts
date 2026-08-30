@@ -149,6 +149,26 @@ export class JobsService {
     return job;
   }
 
+  async searchOpenJobs(rawSearch?: string): Promise<Job[]> {
+    const search = String(rawSearch || '').trim();
+    if (search.length > 100) throw new BadRequestException('Search text must be 100 characters or fewer');
+    if (/[\u0000-\u001f<>]/.test(search) || /\.\.[/\\]/.test(search)) {
+      throw new BadRequestException('Search text contains unsupported characters');
+    }
+
+    const query = this.jobRepo.createQueryBuilder('job')
+      .where('job.status = :status', { status: JobStatus.BIDDING })
+      .orderBy('job.createdAt', 'DESC')
+      .take(100);
+    if (search) {
+      query.andWhere(
+        `CONCAT_WS(' ', job."pickupState", job."deliveryState", job."cargoDescription", job."vehicleType") ILIKE :search`,
+        { search: `%${search}%` },
+      );
+    }
+    return query.getMany();
+  }
+
   async getEditability(jobId: string, customerId: string) {
     const job = await this.getJobById(jobId);
     if (job.customerId !== customerId) throw new ForbiddenException('This is not your delivery');
@@ -168,14 +188,20 @@ export class JobsService {
       'cargoDescription', 'cargoWeight', 'cargoValue', 'vehicleType',
       'deadline', 'specialInstructions', 'insurance', 'goodsCategory', 'distanceKm',
     ] as const;
+    const changes: Partial<Job> = {};
+    for (const key of allowed) if (key in dto) (changes as any)[key] = (dto as any)[key];
+    if (Object.keys(changes).length === 0) {
+      if ('status' in dto) {
+        throw new BadRequestException('Status cannot be changed through the job editing endpoint');
+      }
+      throw new BadRequestException('No supported job fields were provided');
+    }
     await this.jobRepo.manager.transaction(async manager => {
       const job = await manager.findOne(Job, { where: { id: jobId }, lock: { mode: 'pessimistic_write' } });
       if (!job) throw new NotFoundException('Delivery not found');
       if (job.customerId !== customerId) throw new ForbiddenException('This is not your delivery');
       if (job.status !== JobStatus.BIDDING) throw new BadRequestException('This delivery is no longer open for editing');
       if (await manager.count(Bid, { where: { jobId } })) throw new BadRequestException('This delivery cannot be edited because a transporter has already bid');
-      const changes: Partial<Job> = {};
-      for (const key of allowed) if (key in dto) (changes as any)[key] = (dto as any)[key];
       await manager.update(Job, jobId, changes);
     });
     const updated = await this.getJobById(jobId);
@@ -284,6 +310,7 @@ export class JobsService {
     userId: string,
     userRole: string,
     note?: string,
+    pickupConfirmedAction = false,
   ): Promise<Job> {
     const job = await this.getJobById(jobId);
 
@@ -302,6 +329,10 @@ export class JobsService {
     }
     if (userRole === 'customer' && job.customerId !== userId) {
       throw new ForbiddenException('This is not your job');
+    }
+
+    if (newStatus === JobStatus.IN_TRANSIT && !pickupConfirmedAction) {
+      throw new BadRequestException('A pickup photo is required. Use the pickup confirmation action to start this delivery.');
     }
 
     if (newStatus === JobStatus.CANCELLED && job.status === JobStatus.PAYMENT_PENDING) {
@@ -325,7 +356,7 @@ export class JobsService {
 
     // Auto-generate delivery PIN when transporter goes in-transit
     if (newStatus === JobStatus.IN_TRANSIT && !job.deliveryOtp) {
-      const pin = randomInt(1000, 10000).toString();
+      const pin = randomInt(100000, 1000000).toString();
       await this.jobRepo.update(jobId, {
         status: newStatus,
         pickedUpAt: new Date(),
@@ -447,6 +478,73 @@ export class JobsService {
     return updatedJob;
   }
 
+  async confirmPickup(
+    jobId: string,
+    transporterId: string,
+    fileBuffer: Buffer,
+    mimeType: string,
+    lat?: number,
+    lng?: number,
+  ): Promise<Job> {
+    const job = await this.getJobById(jobId);
+    if (job.transporterId !== transporterId) {
+      throw new ForbiddenException('You are not assigned to this job');
+    }
+    if (job.status === JobStatus.IN_TRANSIT) return job;
+    if (job.status !== JobStatus.ACCEPTED) {
+      throw new BadRequestException('Only an accepted and paid delivery can be picked up');
+    }
+    await this.paymentsService.assertEscrowPaid(jobId);
+
+    let photoUrl: string;
+    if (this.supabase) {
+      const ext = ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' } as Record<string, string>)[mimeType] || 'jpg';
+      const fileName = `pickup-${jobId}-${Date.now()}.${ext}`;
+      const { error } = await this.supabase.storage
+        .from('delivery-proofs')
+        .upload(fileName, fileBuffer, { contentType: mimeType, upsert: false });
+      if (error) {
+        this.logger.error(`Pickup photo upload failed for ${jobId}: ${error.message}`);
+        throw new BadRequestException('Failed to upload pickup photo');
+      }
+      photoUrl = this.supabase.storage.from('delivery-proofs').getPublicUrl(fileName).data.publicUrl;
+    } else {
+      photoUrl = `data:${mimeType};base64,${fileBuffer.toString('base64')}`;
+      this.logger.warn('Supabase storage not configured — using base64 pickup-photo fallback');
+    }
+
+    await this.jobRepo.query(`
+      CREATE TABLE IF NOT EXISTS job_pickup_proofs (
+        job_id uuid PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
+        transporter_id uuid NOT NULL REFERENCES users(id),
+        photo_url text NOT NULL,
+        latitude double precision,
+        longitude double precision,
+        captured_at timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+    const coordinatesAreValid = Number.isFinite(lat) && Number.isFinite(lng)
+      && Number(lat) >= -90 && Number(lat) <= 90
+      && Number(lng) >= -180 && Number(lng) <= 180;
+    await this.jobRepo.query(
+      `INSERT INTO job_pickup_proofs (job_id, transporter_id, photo_url, latitude, longitude)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (job_id) DO NOTHING`,
+      [jobId, transporterId, photoUrl, coordinatesAreValid ? lat : null, coordinatesAreValid ? lng : null],
+    );
+
+    const updated = await this.updateJobStatus(
+      jobId,
+      JobStatus.IN_TRANSIT,
+      transporterId,
+      'transporter',
+      'Pickup confirmed with photographic evidence',
+      true,
+    );
+    this.logger.log(`Pickup confirmed with photo for job ${jobId}`);
+    return Object.assign(updated, { pickupProofUrl: photoUrl, pickupConfirmedAt: updated.pickedUpAt });
+  }
+
   // ─── Generate Delivery OTP ────────────────────────────────────────────────
 
   async generateDeliveryOtp(jobId: string, transporterId: string): Promise<{ message: string }> {
@@ -462,7 +560,7 @@ export class JobsService {
       throw new BadRequestException('Please wait before generating another delivery PIN');
     }
 
-    const pin = randomInt(1000, 10000).toString();
+    const pin = randomInt(100000, 1000000).toString();
     await this.jobRepo.update(jobId, { deliveryOtp: pin, otpGeneratedAt: new Date(), otpFailedAttempts: 0, otpLockedUntil: null as any });
 
     // PIN goes to CUSTOMER only — transporter asks customer for it verbally at delivery
@@ -508,7 +606,11 @@ export class JobsService {
     if (job.otpLockedUntil && new Date(job.otpLockedUntil).getTime() > Date.now()) {
       throw new BadRequestException('Too many incorrect attempts. Try again later.');
     }
-    if (!/^\d{4}$/.test(String(otp || ''))) throw new BadRequestException('PIN must contain exactly 4 digits');
+    // Newly generated PINs are six digits. Continue accepting four digits for
+    // deliveries already in transit when this upgrade is deployed.
+    if (!/^(?:\d{4}|\d{6})$/.test(String(otp || ''))) {
+      throw new BadRequestException('PIN must contain 6 digits');
+    }
     if (otp !== job.deliveryOtp) {
       const attempts = Number(job.otpFailedAttempts || 0) + 1;
       await this.jobRepo.update(jobId, {
