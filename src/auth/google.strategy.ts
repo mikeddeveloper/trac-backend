@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../users/entities/user.entity';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
@@ -14,6 +15,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     configService: ConfigService,
     @InjectRepository(User)
     private userRepo: Repository<User>,
+    private readonly emailService: EmailService,
   ) {
     super({
       clientID: configService.get<string>('GOOGLE_CLIENT_ID', ''),
@@ -30,7 +32,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     done: VerifyCallback,
   ) {
     try {
-      const email = profile.emails?.[0]?.value;
+      const email = profile.emails?.[0]?.value?.trim().toLowerCase();
       const fullName = profile.displayName;
       const googleId = profile.id;
       const avatarUrl = profile.photos?.[0]?.value || null;
@@ -69,6 +71,28 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
         newUser.phone = '00000000000';
         user = await this.userRepo.save(newUser);
         this.logger.log(`Google login new user created: ${user.fullName}`);
+
+        // Google has already verified the email address, so no OTP is needed.
+        // Send onboarding only when the account is first created to avoid a
+        // duplicate welcome email on every subsequent Google login.
+        void this.emailService
+          .sendWelcomeEmail({
+            fullName: user.fullName,
+            email: user.email,
+            role: user.role,
+          })
+          .then((result) => {
+            if (!result?.success) {
+              this.logger.error(
+                `Google signup welcome email was not delivered to ${user!.email}`,
+              );
+            }
+          })
+          .catch((error: Error) => {
+            this.logger.error(
+              `Google signup welcome email failed for ${user!.email}: ${error.message}`,
+            );
+          });
       }
 
       return done(null, user ?? false);
