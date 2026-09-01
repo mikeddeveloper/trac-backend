@@ -497,22 +497,27 @@ export class AdminService {
       this.userRepo.count({ where: { role: 'customer' as any } }),
       this.userRepo.count({ where: { role: 'transporter' as any } }),
       this.jobRepo.count(),
-      this.paymentRepo.find({ where: { status: 'success' as any } }),
+      this.paymentRepo.find(),
       this.userRepo.count({ where: { role: 'transporter' as any, isVerified: false } }),
       this.jobRepo.count({ where: { createdAt: MoreThanOrEqual(monthStart) } }),
       this.userRepo.count({ where: { createdAt: MoreThanOrEqual(monthStart) } }),
     ]);
 
-    const totalRevenue = payments.reduce((sum, p) => sum + Number(p.amount), 0);
-    const platformCommission = totalRevenue * 0.10;
-    const totalVAT = payments.reduce((sum, p) => sum + Number((p as any).vatAmount || 0), 0);
+    const confirmedEscrows = payments.filter(p =>
+      p.type === PaymentType.ESCROW && Boolean(p.jobId) &&
+      [PaymentStatus.SUCCESS, PaymentStatus.HELD, PaymentStatus.RELEASED].includes(p.status),
+    );
+    const grossProcessed = confirmedEscrows.reduce((sum, p) => sum + Number(p.amount), 0);
+    const platformCommission = confirmedEscrows.reduce((sum, p) => sum + Number(p.tracCommission || 0), 0);
+    const totalVAT = confirmedEscrows.reduce((sum, p) => sum + Number((p as any).vatAmount || 0), 0);
 
     return {
       totalUsers,
       totalCustomers,
       totalTransporters,
       totalJobs,
-      totalRevenue,
+      totalRevenue: platformCommission,
+      grossProcessed,
       platformCommission,
       totalVAT,
       pendingVerifications,
@@ -674,15 +679,19 @@ export class AdminService {
       const dayEnd   = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
 
       const payments = await this.paymentRepo.find({
-        where: { status: 'success' as any, createdAt: MoreThanOrEqual(dayStart) },
+        where: { createdAt: MoreThanOrEqual(dayStart) },
       });
-      const dayPayments = payments.filter(p => new Date(p.createdAt) < dayEnd);
+      const dayPayments = payments.filter(p =>
+        new Date(p.createdAt) < dayEnd && p.type === PaymentType.ESCROW && Boolean(p.jobId) &&
+        [PaymentStatus.SUCCESS, PaymentStatus.HELD, PaymentStatus.RELEASED].includes(p.status),
+      );
       const amount      = dayPayments.reduce((sum, p) => sum + Number(p.amount), 0);
+      const commission  = dayPayments.reduce((sum, p) => sum + Number(p.tracCommission || 0), 0);
 
       last7days.push({
         date: dayStart.toLocaleDateString('en-NG', { weekday: 'short', day: 'numeric' }),
         amount,
-        commission: amount * 0.10,
+        commission,
       });
     }
 
