@@ -48,16 +48,9 @@ export class BidsService {
       throw new BadRequestException('This job is no longer accepting bids');
     }
 
-    const normalizeVehicle = (value?: string) => {
-      const normalized = String(value || '').trim().toLowerCase();
-      return normalized === 'bike' || normalized === 'motorcycle' ? 'rider' : normalized;
-    };
-    if (transporter.vehicleType && normalizeVehicle(transporter.vehicleType) !== normalizeVehicle(job.vehicleType)) {
-      throw new BadRequestException('This job requires a different vehicle type');
-    }
-    // Operating-state enforcement is temporarily disabled while end-to-end
-    // bidding and payment flows are being tested. Vehicle eligibility remains
-    // enforced above. Restore this check before enabling regional restrictions.
+    // Vehicle-type and operating-state matching are temporarily disabled for
+    // the launch test. Identity and licence approval are still mandatory.
+    // Restore both eligibility checks before enforcing marketplace matching.
 
     const existing = await this.bidsRepo.findOne({ where: { jobId, transporterId } });
     if (existing) throw new BadRequestException('You have already bid on this job');
