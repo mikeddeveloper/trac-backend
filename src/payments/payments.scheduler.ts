@@ -3,7 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import { Job, JobStatus } from '../jobs/entities/job.entity';
-import { Payment, PaymentStatus } from './entities/payment.entity';
+import { Payment, PaymentStatus, PaymentType } from './entities/payment.entity';
 import { PaymentsService } from './payments.service';
 
 @Injectable()
@@ -16,12 +16,24 @@ export class PaymentsScheduler {
     private paymentsService: PaymentsService,
   ) {}
 
-  @Cron(CronExpression.EVERY_HOUR)
-  async recoverAbandonedPayments(): Promise<void> {
-    const cutoff = new Date(Date.now() - 30 * 60 * 1000);
-    const pending = await this.paymentRepo.find({ where: { status: PaymentStatus.PENDING, createdAt: LessThan(cutoff) } });
+  @Cron(CronExpression.EVERY_10_MINUTES)
+  async reconcilePendingPayments(): Promise<void> {
+    const cutoff = new Date(Date.now() - 10 * 60 * 1000);
+    const pending = await this.paymentRepo.find({
+      where: {
+        status: PaymentStatus.PENDING,
+        type: PaymentType.ESCROW,
+        createdAt: LessThan(cutoff),
+      },
+    });
     for (const payment of pending) {
-      await this.paymentsService.cancelPendingPayment(payment.reference, payment.customerId).catch(() => {});
+      // Never mark a transaction failed merely because the webhook was delayed.
+      // Ask Paystack for the authoritative status; verifyPayment activates a
+      // successful job and only cancels statuses Paystack confirms as terminal.
+      await this.paymentsService.verifyPayment(payment.reference, payment.customerId)
+        .catch((error: any) => this.logger.warn(
+          `Payment reconciliation deferred for ${payment.reference}: ${error?.message || 'verification unavailable'}`,
+        ));
     }
   }
 

@@ -5,6 +5,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { Exclude } from 'class-transformer';
 
 export enum UserRole {
   CUSTOMER = 'customer',
@@ -43,9 +44,11 @@ export class User {
   emailVerified!: boolean;
 
   @Column({ nullable: true })
+  @Exclude()
   emailOtp!: string;
 
   @Column({ type: 'timestamp', nullable: true })
+  @Exclude()
   emailOtpExpiry!: Date;
 
   @Column({ nullable: true })
@@ -91,15 +94,19 @@ export class User {
   tripsCompleted!: number;
 
   @Column({ nullable: true })
+  @Exclude()
   refreshToken!: string;
 
   @Column({ default: 0 })
+  @Exclude()
   sessionVersion!: number;
 
   @Column({ nullable: true })
+  @Exclude()
   passwordResetToken!: string;
 
   @Column({ type: 'timestamp', nullable: true })
+  @Exclude()
   passwordResetExpiry!: Date;
 
   // ─── Account status ────────────────────────────────────────────────────────

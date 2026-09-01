@@ -181,6 +181,12 @@ export class JobsService {
   }
 
   async updateUnbidJob(jobId: string, customerId: string, dto: Partial<Job>): Promise<Job> {
+    // Authorize before inspecting or processing the requested changes so a
+    // non-owner always receives a consistent 403 instead of a validation or DB error.
+    const existing = await this.jobRepo.findOne({ where: { id: jobId } });
+    if (!existing) throw new NotFoundException('Delivery not found');
+    if (existing.customerId !== customerId) throw new ForbiddenException('This is not your delivery');
+
     const allowed = [
       'pickupAddress', 'pickupState', 'deliveryAddress', 'deliveryState',
       'pickupNote', 'deliveryNote', 'recipientName', 'recipientPhone',

@@ -53,8 +53,6 @@ export class JobsController {
     const userId = req.user.id;
     const role   = req.user.role;
 
-    console.log(`GET /jobs/mine — userId: ${userId}, role: ${role}`);
-
     if (role === 'transporter') {
       const jobs = await this.jobsService.getTransporterJobs(userId);
       return jobs.map((job) => this.jobsService.toClientJob(job, true, false));
@@ -132,10 +130,41 @@ export class JobsController {
     @Body() body: { status: JobStatus; note?: string },
   ) {
     const role = req.user.role || 'transporter';
+    if (role !== 'admin') {
+      throw new ForbiddenException('Use the dedicated delivery action for status changes');
+    }
     const job = await this.jobsService.updateJobStatus(
       id, body.status, req.user.id, role, body.note,
     );
     return this.jobsService.toClientJob(job, true, role !== 'transporter');
+  }
+
+  @Post(':id/deliver')
+  async confirmDelivery(
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Req() req: any,
+  ) {
+    if (req.user.role !== 'transporter') {
+      throw new ForbiddenException('Only the assigned transporter can complete a delivery');
+    }
+    const job = await this.jobsService.updateJobStatus(
+      id, JobStatus.DELIVERED, req.user.id, req.user.role,
+    );
+    return this.jobsService.toClientJob(job, true, false);
+  }
+
+  @Post(':id/cancel')
+  async cancelJob(
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Req() req: any,
+  ) {
+    if (req.user.role !== 'customer') {
+      throw new ForbiddenException('Only the customer who posted this delivery can cancel it');
+    }
+    const job = await this.jobsService.updateJobStatus(
+      id, JobStatus.CANCELLED, req.user.id, req.user.role,
+    );
+    return this.jobsService.toClientJob(job, true, true);
   }
 
   // A transporter can start a trip only by recording photographic evidence
