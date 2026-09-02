@@ -35,6 +35,48 @@ export class AdminService {
     private paymentsService: PaymentsService,
   ) {}
 
+  private async getPickupProofs(jobIds: string[]) {
+    const proofs = new Map<string, {
+      photoUrl: string;
+      transporterId: string;
+      latitude: number | null;
+      longitude: number | null;
+      capturedAt: Date;
+    }>();
+
+    if (!jobIds.length) return proofs;
+
+    try {
+      const rows = await this.jobRepo.query(
+        `SELECT
+           job_id AS "jobId",
+           transporter_id AS "transporterId",
+           photo_url AS "photoUrl",
+           latitude,
+           longitude,
+           captured_at AS "capturedAt"
+         FROM job_pickup_proofs
+         WHERE job_id = ANY($1::uuid[])`,
+        [jobIds],
+      );
+
+      for (const row of rows) {
+        proofs.set(row.jobId, {
+          photoUrl: row.photoUrl,
+          transporterId: row.transporterId,
+          latitude: row.latitude == null ? null : Number(row.latitude),
+          longitude: row.longitude == null ? null : Number(row.longitude),
+          capturedAt: row.capturedAt,
+        });
+      }
+    } catch (error: any) {
+      // Older databases may not have this table until the first pickup proof is submitted.
+      if (error?.code !== '42P01') throw error;
+    }
+
+    return proofs;
+  }
+
   private async resolveAdminRole(user: User | null): Promise<string | null> {
     if (!user || user.role !== UserRole.ADMIN) return null;
     const rows = await this.userRepo.query(
@@ -361,9 +403,12 @@ export class AdminService {
     query.skip((page - 1) * limit).take(limit);
 
     const [jobs, total] = await query.getManyAndCount();
+    const pickupProofs = await this.getPickupProofs(jobs.map(job => job.id));
 
     return {
-      jobs: jobs.map(j => ({
+      jobs: jobs.map(j => {
+        const pickupProof = pickupProofs.get(j.id);
+        return {
         id: j.id,
         pickupAddress: j.pickupAddress,
         pickupState: j.pickupState,
@@ -381,6 +426,11 @@ export class AdminService {
         otpVerified: (j as any).otpVerified,
         proofOfDeliveryUrl: j.proofOfDeliveryUrl,
         proofUploadedAt: j.proofUploadedAt,
+        pickupProofUrl: pickupProof?.photoUrl || null,
+        pickupProofCapturedAt: pickupProof?.capturedAt || null,
+        pickupProofLatitude: pickupProof?.latitude ?? null,
+        pickupProofLongitude: pickupProof?.longitude ?? null,
+        pickupProofTransporterId: pickupProof?.transporterId || null,
         createdAt: j.createdAt,
         customer: j.customer ? {
           id: j.customer.id,
@@ -395,7 +445,8 @@ export class AdminService {
           phone: j.transporter.phone,
           isVerified: j.transporter.isVerified,
         } : null,
-      })),
+        };
+      }),
       total,
       page,
       totalPages: Math.ceil(total / limit),
@@ -414,8 +465,17 @@ export class AdminService {
     const payment = await this.paymentRepo.findOne({
       where: { jobId } as any,
     });
+    const pickupProof = (await this.getPickupProofs([jobId])).get(jobId);
 
-    return { ...job, payment: payment || null };
+    return {
+      ...job,
+      payment: payment || null,
+      pickupProofUrl: pickupProof?.photoUrl || null,
+      pickupProofCapturedAt: pickupProof?.capturedAt || null,
+      pickupProofLatitude: pickupProof?.latitude ?? null,
+      pickupProofLongitude: pickupProof?.longitude ?? null,
+      pickupProofTransporterId: pickupProof?.transporterId || null,
+    };
   }
 
   // ─── Cancel job (admin) ───────────────────────────────────────────────────────
