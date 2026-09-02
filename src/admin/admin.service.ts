@@ -260,8 +260,11 @@ export class AdminService {
         tripsCompleted: u.tripsCompleted,
         avatarUrl: u.avatarUrl,
         vehicleType: u.vehicleType,
+        licenseNumber: u.licenseNumber,
+        licenseExpiry: u.licenseExpiry,
         licenseStatus: u.licenseStatus,
         licenseSubmittedAt: u.licenseSubmittedAt,
+        licensePhotoUrl: u.licensePhotoUrl,
         createdAt: u.createdAt,
       })),
       total,
@@ -894,12 +897,12 @@ export class AdminService {
 
   async getPendingLicenses() {
     const candidates = await this.userRepo.find({
-      where: { role: 'transporter' as any, licenseStatus: 'pending' } as any,
+      where: { role: 'transporter' as any },
       order: { licenseSubmittedAt: 'DESC' } as any,
     });
-    const pending = candidates.filter(u => Boolean(u.licenseSubmittedAt && u.licensePhotoUrl));
+    const submitted = candidates.filter(u => Boolean(u.licenseSubmittedAt && u.licensePhotoUrl));
 
-    return pending.map(u => ({
+    return submitted.map(u => ({
       id: u.id,
       fullName: u.fullName,
       email: u.email,
