@@ -247,6 +247,21 @@ export class EmailService {
     }
   }
 
+  async sendNewJobPostedEmail(
+    user: { fullName: string; email: string },
+    jobId: string,
+  ) {
+    const frontend = (this.configService.get<string>('FRONTEND_URL') || 'https://traclogistics.com.ng').replace(/\/$/, '');
+    return this.sendActivityEmail(
+      user,
+      'A new delivery opportunity is available',
+      'A new job has just been posted',
+      'Sign in to Trac Logistics to securely review the delivery details and decide whether you would like to submit a bid.',
+      `${frontend}/dashboard/jobs/${jobId}`,
+      'Sign in to view the job',
+    );
+  }
+
   async sendPaymentConfirmedEmail(user: {
     fullName: string;
     email: string;

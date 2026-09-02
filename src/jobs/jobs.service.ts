@@ -111,7 +111,32 @@ export class JobsService {
       message: 'New delivery job posted',
     });
 
+    // Email notifications run after the job is saved and never hold up the
+    // customer's booking response if the email provider is unavailable.
+    void this.notifyTransportersAboutNewJob(saved);
+
     return saved;
+  }
+
+  private async notifyTransportersAboutNewJob(job: Job): Promise<void> {
+    try {
+      const transporters = await this.userRepo.createQueryBuilder('user')
+        .where('user.role = :role', { role: 'transporter' })
+        .andWhere('user.isSuspended = false')
+        .andWhere('user.email IS NOT NULL')
+        .getMany();
+      let delivered = 0;
+      for (const transporter of transporters) {
+        const result = await this.emailService.sendNewJobPostedEmail(
+          { fullName: transporter.fullName, email: transporter.email },
+          job.id,
+        );
+        if (result.success) delivered++;
+      }
+      this.logger.log(`New-job email delivered to ${delivered}/${transporters.length} transporters for job ${job.id}`);
+    } catch (error: any) {
+      this.logger.error(`New-job email notification failed for job ${job.id}: ${error?.message || error}`);
+    }
   }
 
   // ─── Get open jobs ────────────────────────────────────────────────────────
