@@ -900,7 +900,9 @@ export class AdminService {
       where: { role: 'transporter' as any },
       order: { licenseSubmittedAt: 'DESC' } as any,
     });
-    const submitted = candidates.filter(u => Boolean(u.licenseSubmittedAt && u.licensePhotoUrl));
+    // Legacy licence records may predate licenseSubmittedAt, but their
+    // Cloudinary image is still valid evidence and must remain visible.
+    const submitted = candidates.filter(u => Boolean(u.licensePhotoUrl));
 
     return submitted.map(u => ({
       id: u.id,
