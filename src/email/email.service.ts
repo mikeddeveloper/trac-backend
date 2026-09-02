@@ -219,6 +219,34 @@ export class EmailService {
     }
   }
 
+  async sendLaunchAnnouncementEmail(user: { fullName: string; email: string; role: string }) {
+    const escape = (value: string) => String(value || '').replace(/[&<>"']/g, char => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;',
+    })[char] as string);
+    const firstName = escape((user.fullName || 'there').trim().split(/\s+/)[0] || 'there');
+    const isTransporter = user.role === 'transporter';
+    const frontend = (this.configService.get<string>('FRONTEND_URL') || 'https://traclogistics.com.ng').replace(/\/$/, '');
+    const actionUrl = `${frontend}${isTransporter ? '/dashboard/verification' : '/dashboard'}`;
+    const actionLabel = isTransporter ? 'Find delivery opportunities' : 'Post a delivery';
+    const roleMessage = isTransporter
+      ? 'Complete your verification, explore available delivery opportunities and grow your earnings with every successful trip.'
+      : 'Post a delivery request, compare bids from trusted transporters and follow your delivery from pickup to arrival.';
+    const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#F3F7FA;font-family:Arial,sans-serif;color:#132A46"><div style="max-width:620px;margin:0 auto;padding:32px 16px">
+<div style="background:linear-gradient(135deg,#102D4F 0%,#174B68 100%);border-radius:22px 22px 0 0;padding:38px 32px;text-align:center"><div style="display:inline-block;background:#6ED3A6;color:#102D4F;font-size:12px;font-weight:800;letter-spacing:1.5px;padding:8px 14px;border-radius:999px">WE ARE LIVE</div><h1 style="color:#FFFFFF;font-size:31px;line-height:1.2;margin:20px 0 8px">A smarter way to move starts today.</h1><p style="color:#BFD5E3;font-size:15px;line-height:1.6;margin:0">Trac Logistics is officially live across Nigeria.</p></div>
+<div style="background:#FFFFFF;padding:34px 32px;border-radius:0 0 22px 22px;box-shadow:0 12px 36px rgba(16,45,79,.10)"><p style="font-size:17px;font-weight:700;margin:0 0 18px">Hi ${firstName},</p><p style="color:#52677D;font-size:15px;line-height:1.75;margin:0 0 18px">Today is a special day for us: Trac Logistics is officially open. You joined our community early, and we are genuinely grateful to have you moving forward with us.</p><p style="color:#52677D;font-size:15px;line-height:1.75;margin:0 0 24px">${escape(roleMessage)}</p><div style="background:#EFFAF5;border-left:4px solid #43BE88;border-radius:10px;padding:16px 18px;margin:0 0 26px"><p style="color:#175C43;font-size:14px;line-height:1.6;margin:0"><strong>You are one of our first users.</strong> Your experience and feedback will help us build a better logistics platform for everyone.</p></div><div style="text-align:center"><a href="${escape(actionUrl)}" style="display:inline-block;background:#63CE9C;color:#102D4F;padding:14px 25px;border-radius:11px;text-decoration:none;font-size:15px;font-weight:800">${escape(actionLabel)}</a></div><p style="color:#52677D;font-size:14px;line-height:1.7;margin:28px 0 0">Thank you for choosing Trac Logistics.<br><strong style="color:#132A46">The Trac Logistics Team</strong><br><span style="color:#43A77A">Moving You Forward</span></p></div>
+<p style="color:#8A9AAD;text-align:center;font-size:12px;line-height:1.6;margin:20px 0 0">Need help? Contact <a href="mailto:info@trac.com.ng" style="color:#315F7C">info@trac.com.ng</a><br>&copy; 2026 Trac Logistics. All rights reserved.</p></div></body></html>`;
+    try {
+      const { data, error } = await this.sendEmail({ to: user.email, subject: `${firstName}, Trac Logistics is officially live!`, html });
+      if (error) return { success: false, error };
+      this.logger.log(`Launch announcement sent to ${user.email}`);
+      return { success: true, data };
+    } catch (error: any) {
+      this.logger.error(`Launch announcement failed for ${user.email}: ${error?.message || error}`);
+      return { success: false, error: error?.message || 'Email delivery failed' };
+    }
+  }
+
   async sendPaymentConfirmedEmail(user: {
     fullName: string;
     email: string;

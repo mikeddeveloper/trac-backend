@@ -381,6 +381,35 @@ export class AdminService {
     return this.jobRepo.find({ order: { createdAt: 'DESC' }, take: 20 });
   }
 
+  async sendLaunchAnnouncement(requesterId: string) {
+    const requester = await this.userRepo.findOne({ where: { id: requesterId } });
+    if (await this.resolveAdminRole(requester) !== 'super_admin') {
+      throw new ForbiddenException('Only a super administrator can send platform announcements');
+    }
+    await this.getSettings();
+    const users = await this.userRepo.createQueryBuilder('user')
+      .where('user.role IN (:...roles)', { roles: [UserRole.CUSTOMER, UserRole.TRANSPORTER] })
+      .andWhere('user.isSuspended = false')
+      .orderBy('user.createdAt', 'ASC')
+      .getMany();
+    let sent = 0;
+    let skipped = 0;
+    const failed: string[] = [];
+    for (const user of users) {
+      const campaignKey = `campaign:launch-2026:${user.id}`;
+      const existing = await this.userRepo.query('SELECT 1 FROM platform_settings WHERE key = $1 LIMIT 1', [campaignKey]);
+      if (existing.length) { skipped++; continue; }
+      const result = await this.emailService.sendLaunchAnnouncementEmail({ fullName: user.fullName, email: user.email, role: user.role });
+      if (!result.success) { failed.push(user.email); continue; }
+      await this.userRepo.query(
+        'INSERT INTO platform_settings (key, value, updated_at) VALUES ($1, $2::jsonb, now()) ON CONFLICT (key) DO NOTHING',
+        [campaignKey, JSON.stringify({ sentAt: new Date().toISOString(), email: user.email })],
+      );
+      sent++;
+    }
+    return { message: 'Launch announcement campaign completed', recipients: users.length, sent, skipped, failed: failed.length, failedEmails: failed };
+  }
+
   // ─── Get all jobs (paginated) ─────────────────────────────────────────────────
 
   async getAllJobs(status?: string, search?: string, page = 1, limit = 10) {

@@ -71,6 +71,11 @@ export class AdminController {
     return this.adminService.getAllUsers(role, search, Number(page) || 1, Number(limit) || 10);
   }
 
+  @Post('communications/launch-announcement')
+  async sendLaunchAnnouncement(@Request() req: any) {
+    return this.adminService.sendLaunchAnnouncement(req.user.id);
+  }
+
   // ─── GET /admin/users/:id ─────────────────────────────────────────────────────
   @Get('users/:id')
   @UseGuards(AuthGuard('jwt'))
