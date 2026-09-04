@@ -10,6 +10,7 @@ import { GoogleStrategy } from './google.strategy';
 import { UsersModule } from '../users/users.module';
 import { User } from '../users/entities/user.entity';
 import { EmailModule } from '../email/email.module';
+import { PaymentsModule } from '../payments/payments.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { EmailModule } from '../email/email.module';
     PassportModule,
     TypeOrmModule.forFeature([User]),
     EmailModule,
+    PaymentsModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

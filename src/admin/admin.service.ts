@@ -486,16 +486,9 @@ export class AdminService {
         const remaining = Math.max(0, limitPerRole - Number(existingRows[0]?.count || 0));
         if (!remaining) continue;
 
-        const roleEligibility = role === UserRole.TRANSPORTER
-          ? `AND u."isVerified" = true AND u."licenseVerified" = true AND u."licenseStatus" = 'approved'`
-          : '';
         const candidates: User[] = await manager.query(`
           SELECT u.* FROM users u
           WHERE u.role = $1
-            AND u."isSuspended" = false
-            AND u."emailVerified" = true
-            AND NULLIF(BTRIM(u.phone), '') IS NOT NULL
-            ${roleEligibility}
             AND NOT EXISTS (
               SELECT 1 FROM wallet_entries entry
               WHERE entry."userId" = u.id AND entry.kind = 'launch_bonus' AND entry.status = 'success'

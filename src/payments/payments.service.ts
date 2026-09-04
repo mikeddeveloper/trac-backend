@@ -15,7 +15,7 @@ import axios from 'axios';
 import * as crypto from 'crypto';
 import { Payment, PaymentStatus, PaymentType } from './entities/payment.entity';
 import { Job, JobStatus } from '../jobs/entities/job.entity';
-import { User } from '../users/entities/user.entity';
+import { User, UserRole } from '../users/entities/user.entity';
 import { EventsGateway } from '../events/events.gateway';
 import { PushService } from '../push/push.service';
 import { EmailService } from '../email/email.service';
@@ -77,6 +77,43 @@ export class PaymentsService {
       );
       CREATE INDEX IF NOT EXISTS "IDX_wallet_entries_user_created" ON wallet_entries ("userId", "createdAt" DESC);
     `);
+  }
+
+  async creditSignupLaunchBonus(user: Pick<User, 'id' | 'role'>): Promise<boolean> {
+    if (![UserRole.CUSTOMER, UserRole.TRANSPORTER].includes(user.role)) return false;
+    await this.ensureWalletTables();
+    const amount = 500;
+    const credited = await this.paymentRepo.manager.transaction(async manager => {
+      await manager.query(`SELECT pg_advisory_xact_lock(hashtext('trac-launch-bonus-2026'))`);
+      const countRows = await manager.query(`
+        SELECT COUNT(*)::int AS count
+        FROM wallet_entries entry
+        INNER JOIN users u ON u.id = entry."userId"
+        WHERE entry.kind = 'launch_bonus' AND entry.status = 'success' AND u.role = $1
+      `, [user.role]);
+      if (Number(countRows[0]?.count || 0) >= 50) return false;
+
+      const reference = `LAUNCH-BONUS-2026-${user.id}`;
+      const result = await manager.query(`
+        WITH credited AS (
+          INSERT INTO wallet_entries
+            ("reference", "userId", "amount", "direction", "kind", "status", "metadata", "completedAt")
+          VALUES ($1, $2, $3, 'credit', 'launch_bonus', 'success', $4::jsonb, now())
+          ON CONFLICT ("reference") DO NOTHING
+          RETURNING "userId", "amount"
+        )
+        INSERT INTO wallet_accounts ("userId", "balance")
+        SELECT "userId", "amount" FROM credited
+        ON CONFLICT ("userId") DO UPDATE
+          SET "balance" = wallet_accounts."balance" + EXCLUDED."balance", "updatedAt" = now()
+        RETURNING "userId"
+      `, [reference, user.id, amount, JSON.stringify({ campaign: 'launch-2026', usage: 'delivery_only', cashWithdrawable: false, awardedAtSignup: true })]);
+      return result.length > 0;
+    });
+    if (credited) {
+      this.eventsGateway.notifyUser(user.id, 'wallet:credited', { amount, kind: 'launch_bonus', usage: 'delivery_only' });
+    }
+    return credited;
   }
 
   async initializeWalletTopup(email: string, userId: string, requestedAmount: number) {

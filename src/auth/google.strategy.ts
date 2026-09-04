@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy, VerifyCallback } from 'passport-google-oauth20';
 import { ConfigService } from '@nestjs/config';
@@ -6,6 +6,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../users/entities/user.entity';
 import { EmailService } from '../email/email.service';
+import { PaymentsService } from '../payments/payments.service';
 
 @Injectable()
 export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
@@ -16,6 +17,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     @InjectRepository(User)
     private userRepo: Repository<User>,
     private readonly emailService: EmailService,
+    @Optional() private readonly paymentsService?: PaymentsService,
   ) {
     super({
       clientID: configService.get<string>('GOOGLE_CLIENT_ID', ''),
@@ -71,6 +73,10 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
         newUser.phone = '00000000000';
         user = await this.userRepo.save(newUser);
         this.logger.log(`Google login new user created: ${user.fullName}`);
+
+        await this.paymentsService?.creditSignupLaunchBonus(user).catch((error: Error) => {
+          this.logger.error(`Google signup launch bonus failed for ${user!.email}: ${error.message}`);
+        });
 
         // Google has already verified the email address, so no OTP is needed.
         // Send onboarding only when the account is first created to avoid a

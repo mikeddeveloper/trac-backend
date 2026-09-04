@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Optional,
   Logger,
   ConflictException,
   UnauthorizedException,
@@ -16,6 +17,7 @@ import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
 import { EmailService } from '../email/email.service';
 import { createHash, randomBytes } from 'crypto';
+import { PaymentsService } from '../payments/payments.service';
 
 @Injectable()
 export class AuthService {
@@ -30,6 +32,7 @@ export class AuthService {
     private jwtService: JwtService,
     private configService: ConfigService,
     private emailService: EmailService,
+    @Optional() private paymentsService?: PaymentsService,
   ) {}
 
   async signup(dto: SignupDto) {
@@ -58,6 +61,10 @@ export class AuthService {
       role: dto.role,
       // A licence is not pending until its document and details are submitted.
       licenseStatus: 'not_submitted',
+    });
+
+    await this.paymentsService?.creditSignupLaunchBonus(user).catch((error: Error) => {
+      this.logger.error(`Launch bonus credit failed for ${user.email}: ${error.message}`);
     });
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
