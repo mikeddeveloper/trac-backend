@@ -187,7 +187,7 @@ export class JobsService {
       .take(100);
     if (search) {
       query.andWhere(
-        `CONCAT_WS(' ', job."pickupState", job."deliveryState", job."cargoDescription", job."vehicleType") ILIKE :search`,
+        `CONCAT_WS(' ', job."pickupAddress", job."pickupState", job."deliveryAddress", job."deliveryState", job."cargoDescription", job."vehicleType") ILIKE :search`,
         { search: `%${search}%` },
       );
     }
