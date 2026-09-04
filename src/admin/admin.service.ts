@@ -413,6 +413,144 @@ export class AdminService {
     return { message: 'Launch announcement campaign completed', recipients: users.length, sent, skipped, failed: failed.length, failedEmails: failed };
   }
 
+  private async assertSuperAdmin(requesterId: string): Promise<User> {
+    const requester = await this.userRepo.findOne({ where: { id: requesterId } });
+    if (await this.resolveAdminRole(requester) !== 'super_admin') {
+      throw new ForbiddenException('Only a super administrator can manage promotional wallet credits');
+    }
+    return requester!;
+  }
+
+  private async ensurePromotionalWalletTables(): Promise<void> {
+    await this.userRepo.query(`
+      CREATE TABLE IF NOT EXISTS wallet_accounts (
+        "userId" uuid PRIMARY KEY,
+        "balance" numeric(14,2) NOT NULL DEFAULT 0 CHECK ("balance" >= 0),
+        "createdAt" timestamptz NOT NULL DEFAULT now(),
+        "updatedAt" timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE TABLE IF NOT EXISTS wallet_entries (
+        "reference" varchar(160) PRIMARY KEY,
+        "userId" uuid NOT NULL,
+        "amount" numeric(14,2) NOT NULL CHECK ("amount" > 0),
+        "direction" varchar(10) NOT NULL CHECK ("direction" IN ('credit','debit')),
+        "kind" varchar(30) NOT NULL,
+        "status" varchar(15) NOT NULL DEFAULT 'pending',
+        "jobId" uuid NULL,
+        "metadata" jsonb NULL,
+        "createdAt" timestamptz NOT NULL DEFAULT now(),
+        "completedAt" timestamptz NULL
+      );
+      CREATE INDEX IF NOT EXISTS "IDX_wallet_entries_user_created" ON wallet_entries ("userId", "createdAt" DESC);
+    `);
+  }
+
+  async getLaunchBonusStatus(requesterId: string) {
+    await this.assertSuperAdmin(requesterId);
+    await this.ensurePromotionalWalletTables();
+    const rows = await this.userRepo.query(`
+      SELECT u.role, COUNT(*)::int AS credited
+      FROM wallet_entries entry
+      INNER JOIN users u ON u.id = entry."userId"
+      WHERE entry.kind = 'launch_bonus' AND entry.status = 'success'
+      GROUP BY u.role
+    `);
+    const count = (role: UserRole) => Number(rows.find((row: any) => row.role === role)?.credited || 0);
+    return {
+      campaign: 'launch-2026',
+      amount: 500,
+      limitPerRole: 50,
+      customersCredited: count(UserRole.CUSTOMER),
+      transportersCredited: count(UserRole.TRANSPORTER),
+      cashWithdrawable: false,
+      usage: 'delivery_only',
+    };
+  }
+
+  async creditLaunchBonus(requesterId: string) {
+    const requester = await this.assertSuperAdmin(requesterId);
+    await this.ensurePromotionalWalletTables();
+    const amount = 500;
+    const limitPerRole = 50;
+    const creditedUsers: User[] = [];
+
+    await this.userRepo.manager.transaction(async manager => {
+      await manager.query(`SELECT pg_advisory_xact_lock(hashtext('trac-launch-bonus-2026'))`);
+      for (const role of [UserRole.CUSTOMER, UserRole.TRANSPORTER]) {
+        const existingRows = await manager.query(`
+          SELECT COUNT(*)::int AS count
+          FROM wallet_entries entry
+          INNER JOIN users u ON u.id = entry."userId"
+          WHERE entry.kind = 'launch_bonus' AND entry.status = 'success' AND u.role = $1
+        `, [role]);
+        const remaining = Math.max(0, limitPerRole - Number(existingRows[0]?.count || 0));
+        if (!remaining) continue;
+
+        const roleEligibility = role === UserRole.TRANSPORTER
+          ? `AND u."isVerified" = true AND u."licenseVerified" = true AND u."licenseStatus" = 'approved'`
+          : '';
+        const candidates: User[] = await manager.query(`
+          SELECT u.* FROM users u
+          WHERE u.role = $1
+            AND u."isSuspended" = false
+            AND u."emailVerified" = true
+            AND NULLIF(BTRIM(u.phone), '') IS NOT NULL
+            ${roleEligibility}
+            AND NOT EXISTS (
+              SELECT 1 FROM wallet_entries entry
+              WHERE entry."userId" = u.id AND entry.kind = 'launch_bonus' AND entry.status = 'success'
+            )
+          ORDER BY u."createdAt" ASC, u.id ASC
+          LIMIT $2
+        `, [role, remaining]);
+
+        for (const user of candidates) {
+          const reference = `LAUNCH-BONUS-2026-${user.id}`;
+          const result = await manager.query(`
+            WITH credited AS (
+              INSERT INTO wallet_entries
+                ("reference", "userId", "amount", "direction", "kind", "status", "metadata", "completedAt")
+              VALUES ($1, $2, $3, 'credit', 'launch_bonus', 'success', $4::jsonb, now())
+              ON CONFLICT ("reference") DO NOTHING
+              RETURNING "userId", "amount"
+            )
+            INSERT INTO wallet_accounts ("userId", "balance")
+            SELECT "userId", "amount" FROM credited
+            ON CONFLICT ("userId") DO UPDATE
+              SET "balance" = wallet_accounts."balance" + EXCLUDED."balance", "updatedAt" = now()
+            RETURNING "userId"
+          `, [reference, user.id, amount, JSON.stringify({ campaign: 'launch-2026', usage: 'delivery_only', cashWithdrawable: false, creditedBy: requester.id })]);
+          if (result.length) creditedUsers.push(user);
+        }
+      }
+    });
+
+    for (const user of creditedUsers) {
+      this.eventsGateway.notifyUser(user.id, 'wallet:credited', { amount, kind: 'launch_bonus', usage: 'delivery_only' });
+      await this.pushService.sendToUser(user.id, {
+        title: 'NGN 500 Trac wallet bonus',
+        body: 'Your launch bonus is ready and can be used toward a delivery on Trac.',
+        icon: '/icon-192.png',
+        url: '/dashboard/payments',
+      }).catch(() => undefined);
+      await this.emailService.sendActivityEmail(
+        user,
+        'Your NGN 500 Trac wallet bonus is ready',
+        'Your launch bonus has arrived',
+        'We credited NGN 500 to your Trac wallet. This promotional credit can be used toward delivery payments and cannot be withdrawn as cash.',
+        'https://traclogistics.com.ng/dashboard/payments',
+        'View wallet',
+      ).catch(() => undefined);
+    }
+
+    const status = await this.getLaunchBonusStatus(requesterId);
+    return {
+      message: creditedUsers.length ? 'Eligible launch bonuses credited successfully' : 'No new eligible users to credit',
+      creditedNow: creditedUsers.length,
+      ...status,
+    };
+  }
+
   // ─── Get all jobs (paginated) ─────────────────────────────────────────────────
 
   async getAllJobs(status?: string, search?: string, page = 1, limit = 10) {

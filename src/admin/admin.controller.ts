@@ -76,6 +76,16 @@ export class AdminController {
     return this.adminService.sendLaunchAnnouncement(req.user.id);
   }
 
+  @Get('promotions/launch-bonus')
+  async getLaunchBonusStatus(@Request() req: any) {
+    return this.adminService.getLaunchBonusStatus(req.user.id);
+  }
+
+  @Post('promotions/launch-bonus/credit')
+  async creditLaunchBonus(@Request() req: any) {
+    return this.adminService.creditLaunchBonus(req.user.id);
+  }
+
   // ─── GET /admin/users/:id ─────────────────────────────────────────────────────
   @Get('users/:id')
   @UseGuards(AuthGuard('jwt'))
