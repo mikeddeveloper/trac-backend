@@ -79,7 +79,7 @@ export class PaymentsService {
     `);
   }
 
-  async creditSignupLaunchBonus(user: Pick<User, 'id' | 'role'>): Promise<boolean> {
+  async creditSignupLaunchBonus(user: Pick<User, 'id' | 'role' | 'fullName' | 'email'>): Promise<boolean> {
     if (![UserRole.CUSTOMER, UserRole.TRANSPORTER].includes(user.role)) return false;
     await this.ensureWalletTables();
     const amount = 500;
@@ -112,6 +112,18 @@ export class PaymentsService {
     });
     if (credited) {
       this.eventsGateway.notifyUser(user.id, 'wallet:credited', { amount, kind: 'launch_bonus', usage: 'delivery_only' });
+      void this.emailService.sendActivityEmail(
+        user,
+        'Your NGN 500 Trac wallet bonus is ready',
+        'Welcome bonus received',
+        'We credited NGN 500 to your Trac wallet. This promotional credit can be used toward delivery payments and cannot be withdrawn as cash.',
+        'https://traclogistics.com.ng/dashboard/payments',
+        'View wallet',
+      ).then(result => {
+        if (!result.success) this.logger.error(`Launch bonus email was not delivered to ${user.email}`);
+      }).catch((error: Error) => {
+        this.logger.error(`Launch bonus email failed for ${user.email}: ${error.message}`);
+      });
     }
     return credited;
   }
