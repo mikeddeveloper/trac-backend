@@ -416,7 +416,7 @@ export class JobsService {
     } else {
       await this.jobRepo.update(jobId, {
         status: newStatus,
-        ...(newStatus === JobStatus.CANCELLED && note && { cancellationReason: note.trim() }),
+        ...(newStatus === JobStatus.CANCELLED && note && { disputeReason: note.trim() }),
         ...(newStatus === JobStatus.IN_TRANSIT && { pickedUpAt: new Date() }),
         ...(newStatus === JobStatus.DELIVERED  && { deliveredAt: new Date() }),
       });

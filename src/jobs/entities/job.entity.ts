@@ -137,9 +137,6 @@ export class Job {
   @Column({ nullable: true })
   disputeReason!: string;
 
-  @Column({ nullable: true, type: 'text' })
-  cancellationReason!: string;
-
   @Column({ nullable: true, type: 'timestamp' })
   disputeRaisedAt!: Date;
 
