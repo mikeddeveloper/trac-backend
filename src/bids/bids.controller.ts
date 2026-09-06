@@ -44,7 +44,7 @@ export class BidsController {
   @UseGuards(AuthGuard('jwt'))
   async acceptBid(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string, @Request() req) {
     const bid = await this.bidsService.acceptBid(id, req.user.id);
-    return { bid, message: 'Bid accepted — escrow payment initiated' };
+    return { bid, message: 'Bid accepted — secure payment initiated' };
   }
 
   // PATCH /api/bids/:id/reject — customer rejects a bid

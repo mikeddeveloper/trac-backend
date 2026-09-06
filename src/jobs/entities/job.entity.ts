@@ -168,6 +168,9 @@ export class Job {
   @Column({ nullable: true })
   transporterId!: string;
 
+  @Column({ nullable: true })
+  invitedTransporterId!: string;
+
   @Column({ nullable: true, type: 'double precision' })
   lastKnownLat!: number;
 

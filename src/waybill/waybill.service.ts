@@ -121,7 +121,7 @@ export class WaybillService {
 
       // Terms
       doc.fontSize(7).font('Helvetica').fillColor(gray).text(
-        'Terms & Conditions: This waybill serves as proof of shipment on the Trac Marketplace platform. The shipper confirms that the cargo description is accurate. Trac Marketplace is not liable for damage caused by improper packaging. Payment is held in escrow and released upon confirmed delivery.',
+        'Terms & Conditions: This waybill serves as proof of shipment on the Trac Marketplace platform. The shipper confirms that the cargo description is accurate. Trac Marketplace is not liable for damage caused by improper packaging. Payment is processed securely and released upon confirmed delivery.',
         margin, y, { width: contentW }
       );
 

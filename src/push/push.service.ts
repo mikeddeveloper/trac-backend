@@ -144,7 +144,7 @@ export class PushService {
     }),
     paymentConfirmed: (amount: string) => ({
       title: '💰 Payment Confirmed',
-      body: `₦${amount} is now held in escrow for your delivery`,
+      body: `₦${amount} is now secured for your delivery`,
       url: '/dashboard/payments',
       tag: 'payment',
     }),

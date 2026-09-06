@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { randomInt } from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { Brackets, In, IsNull, Repository } from 'typeorm';
 import { Job, JobStatus } from './entities/job.entity';
 import { User } from '../users/entities/user.entity';
 import { EventsGateway } from '../events/events.gateway';
@@ -65,6 +65,22 @@ export class JobsService {
   // ─── Create Job ──────────────────────────────────────────────────────────
 
   async createJob(customerId: string, dto: Partial<Job>): Promise<Job> {
+    const invitedEmail = String((dto as any).invitedTransporterEmail || '').trim().toLowerCase();
+    delete (dto as any).invitedTransporterEmail;
+    let invitedTransporterId: string | null = null;
+    if (invitedEmail) {
+      const customer = await this.userRepo.findOne({ where: { id: customerId } });
+      if (customer?.email?.trim().toLowerCase() !== 'mikeddev6@gmail.com') {
+        throw new ForbiddenException('Private test jobs are not enabled for this account');
+      }
+      const invited = await this.userRepo.createQueryBuilder('user')
+        .where('LOWER(user.email) = :email', { email: invitedEmail })
+        .andWhere('user.role = :role', { role: 'transporter' })
+        .andWhere('user.isSuspended = false')
+        .getOne();
+      if (!invited) throw new BadRequestException('No active transporter account was found with that email');
+      invitedTransporterId = invited.id;
+    }
     if (dto.disclaimerAccepted !== true || !dto.goodsCategory) {
       throw new BadRequestException('You must complete the goods declaration and accept the prohibited-items policy');
     }
@@ -95,6 +111,7 @@ export class JobsService {
     const job = this.jobRepo.create({
       ...dto,
       customerId,
+      invitedTransporterId: invitedTransporterId || undefined,
       status: JobStatus.BIDDING,
       goodsDeclared: true,
       disclaimerAccepted: true,
@@ -103,13 +120,15 @@ export class JobsService {
     const saved = await this.jobRepo.save(job);
 
     // ── Broadcast new job to all connected transporters ──
-    this.eventsGateway.broadcast('job:new', {
+    const newJobEvent = {
       jobId: saved.id,
       pickupState: saved.pickupState,
       deliveryState: saved.deliveryState,
       vehicleType: saved.vehicleType,
       message: 'New delivery job posted',
-    });
+    };
+    if (saved.invitedTransporterId) this.eventsGateway.notifyUser(saved.invitedTransporterId, 'job:new', newJobEvent);
+    else this.eventsGateway.broadcast('job:new', newJobEvent);
 
     // Email notifications run after the job is saved and never hold up the
     // customer's booking response if the email provider is unavailable.
@@ -120,11 +139,12 @@ export class JobsService {
 
   private async notifyTransportersAboutNewJob(job: Job): Promise<void> {
     try {
-      const transporters = await this.userRepo.createQueryBuilder('user')
+      const query = this.userRepo.createQueryBuilder('user')
         .where('user.role = :role', { role: 'transporter' })
         .andWhere('user.isSuspended = false')
-        .andWhere('user.email IS NOT NULL')
-        .getMany();
+        .andWhere('user.email IS NOT NULL');
+      if (job.invitedTransporterId) query.andWhere('user.id = :invitedTransporterId', { invitedTransporterId: job.invitedTransporterId });
+      const transporters = await query.getMany();
       let delivered = 0;
       for (const transporter of transporters) {
         const result = await this.emailService.sendNewJobPostedEmail(
@@ -141,9 +161,12 @@ export class JobsService {
 
   // ─── Get open jobs ────────────────────────────────────────────────────────
 
-  async getOpenJobs(): Promise<Job[]> {
+  async getOpenJobs(transporterId: string): Promise<Job[]> {
     return this.jobRepo.find({
-      where: { status: JobStatus.BIDDING },
+      where: [
+        { status: JobStatus.BIDDING, invitedTransporterId: IsNull() },
+        { status: JobStatus.BIDDING, invitedTransporterId: transporterId },
+      ],
       order: { createdAt: 'DESC' },
     });
   }
@@ -174,7 +197,7 @@ export class JobsService {
     return job;
   }
 
-  async searchOpenJobs(rawSearch?: string): Promise<Job[]> {
+  async searchOpenJobs(rawSearch?: string, transporterId?: string): Promise<Job[]> {
     const search = String(rawSearch || '').trim();
     if (search.length > 100) throw new BadRequestException('Search text must be 100 characters or fewer');
     if (/[\u0000-\u001f<>]/.test(search) || /\.\.[/\\]/.test(search)) {
@@ -183,6 +206,10 @@ export class JobsService {
 
     const query = this.jobRepo.createQueryBuilder('job')
       .where('job.status = :status', { status: JobStatus.BIDDING })
+      .andWhere(new Brackets(builder => {
+        builder.where('job."invitedTransporterId" IS NULL');
+        if (transporterId) builder.orWhere('job."invitedTransporterId" = :transporterId', { transporterId });
+      }))
       .orderBy('job.createdAt', 'DESC')
       .take(100);
     if (search) {

@@ -43,7 +43,7 @@ export class JobsController {
     if (!['transporter', 'admin'].includes(req.user.role)) {
       throw new ForbiddenException('Transporter access required');
     }
-    const jobs = await this.jobsService.getOpenJobs();
+    const jobs = await this.jobsService.getOpenJobs(req.user.id);
     return jobs.map((job) => this.jobsService.toClientJob(job, false));
   }
 
@@ -75,7 +75,7 @@ export class JobsController {
     if (!['transporter', 'admin'].includes(req.user.role)) {
       throw new ForbiddenException('Transporter access required');
     }
-    const jobs = await this.jobsService.searchOpenJobs(query.search);
+    const jobs = await this.jobsService.searchOpenJobs(query.search, req.user.id);
     return jobs.map(job => this.jobsService.toClientJob(job, false));
   }
 
@@ -84,7 +84,7 @@ export class JobsController {
     if (!['transporter', 'admin'].includes(req.user.role)) {
       throw new ForbiddenException('Transporter access required');
     }
-    const jobs = await this.jobsService.searchOpenJobs(query.search);
+    const jobs = await this.jobsService.searchOpenJobs(query.search, req.user.id);
     return jobs.map(job => this.jobsService.toClientJob(job, false));
   }
 
@@ -98,7 +98,8 @@ export class JobsController {
   async getJob(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string, @Req() req: any) {
     const job = await this.jobsService.getJobById(id);
     const isParty = job.customerId === req.user.id || job.transporterId === req.user.id;
-    const canBrowse = job.status === JobStatus.BIDDING && req.user.role === 'transporter';
+    const canBrowse = job.status === JobStatus.BIDDING && req.user.role === 'transporter'
+      && (!job.invitedTransporterId || job.invitedTransporterId === req.user.id);
     if (!isParty && !canBrowse && req.user.role !== 'admin') {
       throw new ForbiddenException('You cannot access this job');
     }

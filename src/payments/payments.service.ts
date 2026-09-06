@@ -238,7 +238,7 @@ export class PaymentsService {
       ],
       order: { createdAt: 'DESC' },
     });
-    if (!payment) throw new BadRequestException('Payment must be confirmed in escrow before this delivery can start');
+    if (!payment) throw new BadRequestException('Payment must be confirmed before this delivery can start');
   }
 
   private async activatePaidJob(payment: Payment): Promise<void> {
@@ -342,7 +342,7 @@ export class PaymentsService {
         return created;
       });
       await this.activatePaidJob(payment);
-      this.eventsGateway.notifyUser(customerId, 'payment:confirmed', { reference, amount, status: 'success', paidAt: new Date(), jobId, message: `Payment of NGN ${amount.toLocaleString()} from Trac Balance is held in escrow` });
+      this.eventsGateway.notifyUser(customerId, 'payment:confirmed', { reference, amount, status: 'success', paidAt: new Date(), jobId, message: `Payment of NGN ${amount.toLocaleString()} from Trac Balance is secured for this delivery` });
       return { status: 'success', paidWith: 'wallet', reference, vatAmount, totalCharged, jobId };
     }
 
@@ -354,7 +354,15 @@ export class PaymentsService {
           amount: Math.round(totalCharged * 100),
           reference,
           callback_url: `${this.configService.get('FRONTEND_URL') || 'https://traclogistics.com.ng'}/dashboard/payments`,
-          metadata: { jobId, customerId },
+          metadata: {
+            jobId,
+            customerId,
+            custom_fields: [{
+              display_name: 'Payment purpose',
+              variable_name: 'payment_purpose',
+              value: 'Secure Trac delivery payment',
+            }],
+          },
         },
         { headers: this.headers },
       );
@@ -485,7 +493,7 @@ export class PaymentsService {
   async initiateRefund(paymentId: string, reason = 'Refund approved by Trac support'): Promise<{ message: string; status: string }> {
     const payment = await this.paymentRepo.findOne({ where: { id: paymentId } });
     if (!payment) throw new NotFoundException('Payment not found');
-    if (payment.type !== PaymentType.ESCROW) throw new BadRequestException('Only the original escrow payment can be refunded');
+    if (payment.type !== PaymentType.ESCROW) throw new BadRequestException('Only the original delivery payment can be refunded');
     if (payment.status === PaymentStatus.REFUNDED) return { message: 'Payment has already been refunded', status: 'refunded' };
     if (payment.status === PaymentStatus.RELEASED) throw new BadRequestException('Payment has already been released to the transporter');
     if (![PaymentStatus.SUCCESS, PaymentStatus.HELD].includes(payment.status)) {
@@ -679,7 +687,7 @@ export class PaymentsService {
       this.eventsGateway.notifyUser(payment.customerId, 'payment:confirmed', {
         reference, amount: payment.amount, status: PaymentStatus.SUCCESS,
         paidAt: new Date(),
-        message: `Payment of ₦${Number(payment.amount).toLocaleString()} confirmed and held in escrow`,
+        message: `Payment of ₦${Number(payment.amount).toLocaleString()} confirmed and secured`,
       });
     }
 

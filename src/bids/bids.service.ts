@@ -47,6 +47,9 @@ export class BidsService {
     if (job.status !== JobStatus.BIDDING) {
       throw new BadRequestException('This job is no longer accepting bids');
     }
+    if (job.invitedTransporterId && job.invitedTransporterId !== transporterId) {
+      throw new ForbiddenException('This invite-only job is assigned to another transporter');
+    }
 
     // Vehicle-type and operating-state matching are temporarily disabled for
     // the launch test. Identity and licence approval are still mandatory.

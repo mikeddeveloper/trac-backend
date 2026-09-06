@@ -166,7 +166,7 @@ export class EmailService {
         </div>
         <div style="display:flex;gap:12px;margin-bottom:16px;align-items:flex-start;">
           <div style="min-width:32px;height:32px;border-radius:50%;background:#1E3A5F;color:white;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:0.85rem;">3</div>
-          <div><p style="color:#1E3A5F;font-weight:700;margin:0 0 4px;">Pay Securely</p><p style="color:#64748B;font-size:0.85rem;margin:0;">Pay via Paystack. Money held in escrow until delivery.</p></div>
+          <div><p style="color:#1E3A5F;font-weight:700;margin:0 0 4px;">Pay Securely</p><p style="color:#64748B;font-size:0.85rem;margin:0;">Pay securely via Paystack. Payment is released after delivery confirmation.</p></div>
         </div>
         <div style="display:flex;gap:12px;align-items:flex-start;">
           <div style="min-width:32px;height:32px;border-radius:50%;background:#6EC89A;color:#1E3A5F;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:0.85rem;">4</div>
@@ -283,7 +283,7 @@ export class EmailService {
     <div style="text-align:center;margin-bottom:24px;">
       <div style="font-size:3rem;margin-bottom:12px;">✅</div>
       <h2 style="color:#1E3A5F;font-size:1.4rem;font-weight:800;margin:0 0 8px;">Payment Confirmed!</h2>
-      <p style="color:#64748B;margin:0;">Hi ${firstName}, your payment has been received and is held safely in escrow.</p>
+      <p style="color:#64748B;margin:0;">Hi ${firstName}, your payment has been received and secured for this delivery.</p>
     </div>
     <div style="background:#F8FAFC;border-radius:12px;padding:20px;margin-bottom:24px;">
       <div style="display:flex;justify-content:space-between;margin-bottom:12px;border-bottom:1px solid #E8ECF0;padding-bottom:12px;">
@@ -296,7 +296,7 @@ export class EmailService {
       </div>
       <div style="display:flex;justify-content:space-between;">
         <span style="color:#64748B;font-size:0.85rem;">Payment Status</span>
-        <span style="color:#15803D;font-weight:700;font-size:0.85rem;">Held in Escrow ✅</span>
+        <span style="color:#15803D;font-weight:700;font-size:0.85rem;">Payment Secured ✅</span>
       </div>
     </div>
     <p style="color:#64748B;font-size:0.85rem;text-align:center;margin:0 0 20px;">
