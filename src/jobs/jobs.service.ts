@@ -198,10 +198,11 @@ export class JobsService {
     const job = await this.getJobById(jobId);
     if (job.customerId !== customerId) throw new ForbiddenException('This is not your delivery');
     const bidCount = await this.bidRepo.count({ where: { jobId } });
+    const editableStatuses = [JobStatus.PENDING, JobStatus.BIDDING, JobStatus.BID_SELECTED, JobStatus.PAYMENT_PENDING];
     return {
-      editable: job.status === JobStatus.BIDDING && bidCount === 0,
+      editable: editableStatuses.includes(job.status),
       bidCount,
-      reason: bidCount > 0 ? 'A transporter has already bid on this delivery' : job.status !== JobStatus.BIDDING ? 'This delivery is no longer open for editing' : null,
+      reason: editableStatuses.includes(job.status) ? null : 'A paid delivery cannot be edited',
     };
   }
 
@@ -231,8 +232,8 @@ export class JobsService {
       const job = await manager.findOne(Job, { where: { id: jobId }, lock: { mode: 'pessimistic_write' } });
       if (!job) throw new NotFoundException('Delivery not found');
       if (job.customerId !== customerId) throw new ForbiddenException('This is not your delivery');
-      if (job.status !== JobStatus.BIDDING) throw new BadRequestException('This delivery is no longer open for editing');
-      if (await manager.count(Bid, { where: { jobId } })) throw new BadRequestException('This delivery cannot be edited because a transporter has already bid');
+      const editableStatuses = [JobStatus.PENDING, JobStatus.BIDDING, JobStatus.BID_SELECTED, JobStatus.PAYMENT_PENDING];
+      if (!editableStatuses.includes(job.status)) throw new BadRequestException('A paid delivery cannot be edited');
       await manager.update(Job, jobId, changes);
     });
     const updated = await this.getJobById(jobId);
@@ -415,6 +416,7 @@ export class JobsService {
     } else {
       await this.jobRepo.update(jobId, {
         status: newStatus,
+        ...(newStatus === JobStatus.CANCELLED && note && { cancellationReason: note.trim() }),
         ...(newStatus === JobStatus.IN_TRANSIT && { pickedUpAt: new Date() }),
         ...(newStatus === JobStatus.DELIVERED  && { deliveredAt: new Date() }),
       });

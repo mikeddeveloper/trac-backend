@@ -157,12 +157,17 @@ export class JobsController {
   async cancelJob(
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
     @Req() req: any,
+    @Body() body: { reason?: string },
   ) {
     if (req.user.role !== 'customer') {
       throw new ForbiddenException('Only the customer who posted this delivery can cancel it');
     }
+    const reason = String(body?.reason || '').trim();
+    if (!reason || reason.length > 200) {
+      throw new BadRequestException('Please provide a short cancellation reason');
+    }
     const job = await this.jobsService.updateJobStatus(
-      id, JobStatus.CANCELLED, req.user.id, req.user.role,
+      id, JobStatus.CANCELLED, req.user.id, req.user.role, reason,
     );
     return this.jobsService.toClientJob(job, true, true);
   }
