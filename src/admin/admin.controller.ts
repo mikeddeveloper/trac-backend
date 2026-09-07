@@ -76,6 +76,11 @@ export class AdminController {
     return this.adminService.sendLaunchAnnouncement(req.user.id);
   }
 
+  @Post('communications/community-update')
+  async sendCommunityUpdate(@Request() req: any) {
+    return this.adminService.sendCommunityUpdate(req.user.id);
+  }
+
   @Get('promotions/launch-bonus')
   async getLaunchBonusStatus(@Request() req: any) {
     return this.adminService.getLaunchBonusStatus(req.user.id);

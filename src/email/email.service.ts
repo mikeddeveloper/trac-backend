@@ -247,6 +247,29 @@ export class EmailService {
     }
   }
 
+  async sendCommunityUpdateEmail(user: { fullName: string; email: string; role: string }) {
+    const escape = (value: string) => String(value || '').replace(/[&<>"']/g, char => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;',
+    })[char] as string);
+    const firstName = escape((user.fullName || 'there').trim().split(/\s+/)[0] || 'there');
+    const frontend = (this.configService.get<string>('FRONTEND_URL') || 'https://traclogistics.com.ng').replace(/\/$/, '');
+    const isTransporter = user.role === 'transporter';
+    const roleTitle = isTransporter ? 'For transporters' : 'For customers';
+    const roleMessage = isTransporter
+      ? 'Explore available opportunities, submit competitive bids and grow your earnings.'
+      : 'Post a delivery and choose the transporter bid that works for you.';
+    const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#F3F7FA;font-family:Arial,sans-serif;color:#132A46"><div style="max-width:620px;margin:0 auto;padding:32px 16px"><div style="background:linear-gradient(135deg,#102D4F,#1C5873);padding:38px 30px;border-radius:22px 22px 0 0;text-align:center"><div style="color:#6ED3A6;font-size:12px;font-weight:800;letter-spacing:1.7px">TRAC COMMUNITY</div><h1 style="color:#fff;font-size:30px;line-height:1.2;margin:14px 0 10px">Let&rsquo;s move Nigeria forward together.</h1><p style="color:#C8DCE7;font-size:15px;line-height:1.6;margin:0">A smarter, safer logistics network starts with all of us.</p></div><div style="background:#fff;padding:34px 32px;border-radius:0 0 22px 22px;box-shadow:0 14px 38px rgba(16,45,79,.1)"><p style="font-size:17px;font-weight:700;margin:0 0 18px">Hi ${firstName},</p><p style="color:#52677D;font-size:15px;line-height:1.75;margin:0 0 18px">Thank you for being part of the Trac community. Whether you are sending goods or helping people move them, you are contributing to a smarter and more connected logistics network across Nigeria.</p><p style="color:#52677D;font-size:15px;line-height:1.75;margin:0 0 22px">Trac brings customers and verified transporters together through competitive pricing, secure Paystack payments, real-time tracking and delivery confirmation.</p><div style="background:#EFFAF5;border:1px solid #CDEEDD;border-radius:14px;padding:18px;margin-bottom:26px"><p style="color:#175C43;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:1px;margin:0 0 7px">${escape(roleTitle)}</p><p style="color:#315F52;font-size:14px;line-height:1.6;margin:0">${escape(roleMessage)}</p></div><div style="text-align:center"><a href="${escape(frontend + '/dashboard')}" style="display:inline-block;background:#63CE9C;color:#102D4F;padding:14px 25px;border-radius:11px;text-decoration:none;font-size:15px;font-weight:800">Open Your Trac Dashboard</a></div><p style="color:#52677D;font-size:14px;line-height:1.7;margin:28px 0 0">Your experience matters. Reply to this email whenever you have feedback or need assistance.<br><br>Together, we&rsquo;re moving Nigeria forward.<br><strong style="color:#132A46">The Trac Nigeria Team</strong><br><span style="color:#43A77A">Moving You Forward</span></p></div><p style="color:#8A9AAD;text-align:center;font-size:12px;line-height:1.6;margin:20px 0 0">Need help? Contact <a href="mailto:info@trac.com.ng" style="color:#315F7C">info@trac.com.ng</a><br>&copy; 2026 Trac Nigeria Limited. All rights reserved.</p></div></body></html>`;
+    try {
+      const { data, error } = await this.sendEmail({ to: user.email, subject: `${firstName}, let's move Nigeria forward together`, html });
+      if (error) return { success: false, error };
+      this.logger.log(`Community update sent to ${user.email}`);
+      return { success: true, data };
+    } catch (error: any) {
+      this.logger.error(`Community update failed for ${user.email}: ${error?.message || error}`);
+      return { success: false, error: error?.message || 'Email delivery failed' };
+    }
+  }
+
   async sendNewJobPostedEmail(
     user: { fullName: string; email: string },
     jobId: string,
