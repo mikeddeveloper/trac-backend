@@ -99,7 +99,7 @@ export class EmailService {
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;',
     })[char] as string);
     const firstName = escape((user.fullName || 'there').split(' ')[0]);
-    const frontend = this.configService.get<string>('FRONTEND_URL') || 'https://traclogistics.com.ng';
+    const frontend = this.configService.get<string>('FRONTEND_URL') || 'https://trac.com.ng';
     const url = actionUrl || `${frontend}/dashboard/notifications`;
     const html = `<div style="background:#F8FAFC;padding:32px 16px;font-family:Arial,sans-serif"><div style="max-width:600px;margin:auto;background:#fff;border-radius:16px;overflow:hidden"><div style="background:#1E3A5F;padding:28px;text-align:center"><h1 style="color:#6EC89A;margin:0">Trac Logistics</h1></div><div style="padding:32px"><h2 style="color:#1E3A5F">${escape(heading)}</h2><p style="color:#64748B;line-height:1.7">Hi ${firstName},</p><p style="color:#64748B;line-height:1.7">${escape(message)}</p><a href="${escape(url)}" style="display:inline-block;margin-top:16px;background:#6EC89A;color:#1E3A5F;padding:12px 22px;border-radius:10px;text-decoration:none;font-weight:700">${escape(actionLabel)}</a></div><div style="padding:18px;text-align:center;color:#94A3B8;font-size:12px">Trac Marketplace · info@trac.com.ng</div></div></div>`;
     try {
@@ -176,7 +176,7 @@ export class EmailService {
     </div>
 
     <div style="text-align:center;margin-top:24px;">
-      <a href="https://www.traclogistics.com.ng/${isTransporter ? 'dashboard/verification' : 'dashboard'}"
+      <a href="https://trac.com.ng/${isTransporter ? 'dashboard/verification' : 'dashboard'}"
          style="display:inline-block;background:#6EC89A;color:#1E3A5F;padding:14px 32px;border-radius:12px;font-weight:800;font-size:1rem;text-decoration:none;">
         ${isTransporter ? 'Complete Verification →' : 'Post Your First Delivery →'}
       </a>
@@ -225,7 +225,7 @@ export class EmailService {
     })[char] as string);
     const firstName = escape((user.fullName || 'there').trim().split(/\s+/)[0] || 'there');
     const isTransporter = user.role === 'transporter';
-    const frontend = (this.configService.get<string>('FRONTEND_URL') || 'https://traclogistics.com.ng').replace(/\/$/, '');
+    const frontend = (this.configService.get<string>('FRONTEND_URL') || 'https://trac.com.ng').replace(/\/$/, '');
     const actionUrl = `${frontend}${isTransporter ? '/dashboard/verification' : '/dashboard'}`;
     const actionLabel = isTransporter ? 'Find delivery opportunities' : 'Post a delivery';
     const roleMessage = isTransporter
@@ -252,7 +252,7 @@ export class EmailService {
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;',
     })[char] as string);
     const firstName = escape((user.fullName || 'there').trim().split(/\s+/)[0] || 'there');
-    const frontend = (this.configService.get<string>('FRONTEND_URL') || 'https://traclogistics.com.ng').replace(/\/$/, '');
+    const frontend = (this.configService.get<string>('FRONTEND_URL') || 'https://trac.com.ng').replace(/\/$/, '');
     const isTransporter = user.role === 'transporter';
     const roleTitle = isTransporter ? 'For transporters' : 'For customers';
     const roleMessage = isTransporter
@@ -274,7 +274,7 @@ export class EmailService {
     user: { fullName: string; email: string },
     jobId: string,
   ) {
-    const frontend = (this.configService.get<string>('FRONTEND_URL') || 'https://traclogistics.com.ng').replace(/\/$/, '');
+    const frontend = (this.configService.get<string>('FRONTEND_URL') || 'https://trac.com.ng').replace(/\/$/, '');
     return this.sendActivityEmail(
       user,
       'A new delivery opportunity is available',
@@ -326,7 +326,7 @@ export class EmailService {
       Your money is safe. It will only be released after your recipient confirms delivery with the PIN code.
     </p>
     <div style="text-align:center;">
-      <a href="https://www.traclogistics.com.ng/dashboard"
+      <a href="https://trac.com.ng/dashboard"
          style="display:inline-block;background:#1E3A5F;color:white;padding:12px 28px;border-radius:12px;font-weight:800;font-size:0.9rem;text-decoration:none;">
         Track Your Delivery →
       </a>
@@ -475,7 +475,7 @@ export class EmailService {
     <p style="color:#64748B;font-size:0.9rem;line-height:1.6;margin:0 0 24px;">
       Your driver license has been verified by our admin team. You now have full access to the Trac Marketplace dashboard and can start bidding on delivery jobs!
     </p>
-    <a href="https://www.traclogistics.com.ng/dashboard/transporter"
+    <a href="https://trac.com.ng/dashboard/transporter"
        style="display:inline-block;background:#6EC89A;color:#1E3A5F;padding:14px 32px;border-radius:12px;font-weight:800;font-size:1rem;text-decoration:none;margin-bottom:24px;">
       Go to Dashboard →
     </a>
@@ -533,7 +533,7 @@ export class EmailService {
       <p style="color:#991B1B;font-weight:700;margin:0 0 4px;">Reason:</p>
       <p style="color:#991B1B;font-size:0.85rem;margin:0;">${reason}</p>
     </div>
-    <a href="https://www.traclogistics.com.ng/dashboard/license"
+    <a href="https://trac.com.ng/dashboard/license"
        style="display:inline-block;background:#1E3A5F;color:white;padding:14px 32px;border-radius:12px;font-weight:800;font-size:1rem;text-decoration:none;margin-bottom:16px;">
       Resubmit License →
     </a>
@@ -603,7 +603,7 @@ export class EmailService {
       Thank you for using Trac Logistics! Please rate your transporter to help build trust in our community.
     </p>
     <div style="text-align:center;">
-      <a href="https://www.traclogistics.com.ng/dashboard/ratings?job=${encodeURIComponent(delivery.jobId)}"
+      <a href="https://trac.com.ng/dashboard/ratings?job=${encodeURIComponent(delivery.jobId)}"
          style="display:inline-block;background:#6EC89A;color:#1E3A5F;padding:12px 28px;border-radius:12px;font-weight:800;font-size:0.9rem;text-decoration:none;">
         Rate Your Transporter →
       </a>

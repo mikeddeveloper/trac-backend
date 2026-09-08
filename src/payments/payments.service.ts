@@ -117,7 +117,7 @@ export class PaymentsService {
         'Your NGN 500 Trac wallet bonus is ready',
         'Welcome bonus received',
         'We credited NGN 500 to your Trac wallet. This promotional credit can be used toward delivery payments and cannot be withdrawn as cash.',
-        'https://traclogistics.com.ng/dashboard/payments',
+        'https://trac.com.ng/dashboard/payments',
         'View wallet',
       ).then(result => {
         if (!result.success) this.logger.error(`Launch bonus email was not delivered to ${user.email}`);
@@ -144,7 +144,7 @@ export class PaymentsService {
         email,
         amount: Math.round(amount * 100),
         reference,
-        callback_url: `${this.configService.get('FRONTEND_URL') || 'https://traclogistics.com.ng'}/dashboard/payments?wallet_topup=1`,
+        callback_url: `${this.configService.get('FRONTEND_URL') || 'https://trac.com.ng'}/dashboard/payments?wallet_topup=1`,
         metadata: { purpose: 'wallet_topup', customerId: userId },
       }, { headers: this.headers });
       if (response.data?.status !== true) throw new Error(response.data?.message || 'Paystack rejected the top-up');
@@ -353,7 +353,7 @@ export class PaymentsService {
           email,
           amount: Math.round(totalCharged * 100),
           reference,
-          callback_url: `${this.configService.get('FRONTEND_URL') || 'https://traclogistics.com.ng'}/dashboard/payments`,
+          callback_url: `${this.configService.get('FRONTEND_URL') || 'https://trac.com.ng'}/dashboard/payments`,
           metadata: {
             jobId,
             customerId,

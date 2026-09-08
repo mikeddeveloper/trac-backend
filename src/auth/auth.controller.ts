@@ -77,7 +77,7 @@ export class AuthController {
 
     const frontendUrl =
       this.configService.get<string>('FRONTEND_URL') ||
-      'https://traclogistics.com.ng';
+      'https://trac.com.ng';
 
     res.redirect(`${frontendUrl}/auth/google/callback?code=${encodeURIComponent(code)}`);
   }

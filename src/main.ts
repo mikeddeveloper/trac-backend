@@ -15,6 +15,8 @@ import * as express from 'express';
 import { AdminAuditInterceptor } from './common/interceptors/admin-audit.interceptor';
 
 const ALLOWED_ORIGINS = [
+  'https://trac.com.ng',
+  'https://www.trac.com.ng',
   'https://traclogistics.com.ng',
   'https://www.traclogistics.com.ng',
   'https://trac-logistics-web-app.vercel.app',

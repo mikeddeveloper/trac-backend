@@ -340,7 +340,7 @@ export class AdminService {
         'Important: your Trac account has been suspended',
         'Account suspended',
         'Your account has been suspended. Please complete your verification or contact info@trac.com.ng if you need assistance.',
-        'https://traclogistics.com.ng/dashboard/verification',
+        'https://trac.com.ng/dashboard/verification',
         'Complete Verification',
       );
     }
@@ -561,7 +561,7 @@ export class AdminService {
         'Your NGN 500 Trac wallet bonus is ready',
         'Your launch bonus has arrived',
         'We credited NGN 500 to your Trac wallet. This promotional credit can be used toward delivery payments and cannot be withdrawn as cash.',
-        'https://traclogistics.com.ng/dashboard/payments',
+        'https://trac.com.ng/dashboard/payments',
         'View wallet',
       ).catch(() => undefined);
     }

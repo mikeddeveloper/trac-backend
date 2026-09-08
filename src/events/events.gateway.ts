@@ -20,6 +20,8 @@ import { Repository } from 'typeorm';
 import { Job, JobStatus } from '../jobs/entities/job.entity';
 
 const WS_ALLOWED_ORIGINS = [
+  'https://trac.com.ng',
+  'https://www.trac.com.ng',
   'https://traclogistics.com.ng',
   'https://www.traclogistics.com.ng',
   'https://trac-logistics-web-app.vercel.app',

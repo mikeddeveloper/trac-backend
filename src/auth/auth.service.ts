@@ -396,7 +396,7 @@ export class AuthService {
     } as any);
 
     const frontendUrl =
-      this.configService.get('FRONTEND_URL') || 'https://traclogistics.com.ng';
+      this.configService.get('FRONTEND_URL') || 'https://trac.com.ng';
     const resetUrl = `${frontendUrl}/reset-password?token=${token}`;
 
     this.emailService
