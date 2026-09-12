@@ -29,6 +29,7 @@ import { Payment } from './payments/entities/payment.entity';
 import { Rating } from './ratings/entities/rating.entity';
 import { Dispute } from './disputes/entities/dispute.entity';
 import { PushSubscription } from './push/entities/push-subscription.entity';
+import { NotificationRecord } from './push/entities/notification-record.entity';
 
 @Module({
   imports: [
@@ -39,7 +40,7 @@ import { PushSubscription } from './push/entities/push-subscription.entity';
       useFactory: () => ({
         type: 'postgres',
         url: process.env.DATABASE_URL,
-        entities: [User, Job, Bid, Payment, Rating, Dispute, PushSubscription],
+        entities: [User, Job, Bid, Payment, Rating, Dispute, PushSubscription, NotificationRecord],
         synchronize: process.env.NODE_ENV !== 'production' && process.env.TYPEORM_SYNC === 'true',
         ssl: process.env.NODE_ENV === 'production'
           ? { rejectUnauthorized: false }

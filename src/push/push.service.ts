@@ -1,20 +1,22 @@
 // trac-backend/src/push/push.service.ts
 // Day 24: Web Push notification service
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as webpush from 'web-push';
 import { ConfigService } from '@nestjs/config';
 import { PushSubscription } from './entities/push-subscription.entity';
+import { NotificationRecord } from './entities/notification-record.entity';
 
 @Injectable()
-export class PushService {
+export class PushService implements OnModuleInit {
   private readonly logger = new Logger(PushService.name);
 
   constructor(
     @InjectRepository(PushSubscription)
     private subRepo: Repository<PushSubscription>,
+    @InjectRepository(NotificationRecord) private notificationRepo:Repository<NotificationRecord>,
     private config: ConfigService,
   ) {
     // Set VAPID keys
@@ -38,7 +40,8 @@ export class PushService {
       return;
     }
 
-    const endpoint = subscription.endpoint;
+    const endpoint = String(subscription.expoPushToken||subscription.endpoint||'');
+    if(!endpoint) return;
 
     // Check if already exists
     const existing = await this.subRepo.findOne({ where: { endpoint } });
@@ -73,6 +76,7 @@ export class PushService {
     data?: any;
   }): Promise<{ sent: number }> {
     try {
+      await this.notificationRepo.save(this.notificationRepo.create({userId,title:payload.title,body:payload.body,url:payload.url,tag:payload.tag,data:payload.data||{},read:false}));
       const subs = await this.subRepo.find({ where: { userId } });
       if (!subs.length) {
         this.logger.warn(`📵 No push subscriptions found for user ${userId}`);
@@ -91,6 +95,10 @@ export class PushService {
       let sent = 0;
       for (const sub of subs) {
         try {
+          if(sub.endpoint.startsWith('ExponentPushToken[')||sub.endpoint.startsWith('ExpoPushToken[')){
+            const expoResponse=await fetch('https://exp.host/--/api/v2/push/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:sub.endpoint,title:payload.title,body:payload.body,data:{url:payload.url,...payload.data},sound:'default',channelId:'delivery-updates'})});
+            if(!expoResponse.ok)throw new Error(`Expo push failed (${expoResponse.status})`);sent++;continue;
+          }
           const subscription = {
             endpoint: sub.endpoint,
             keys: { p256dh: sub.p256dh, auth: sub.auth },
@@ -120,6 +128,27 @@ export class PushService {
   async removeSubscription(endpoint: string): Promise<void> {
     await this.subRepo.delete({ endpoint });
   }
+
+  async onModuleInit() {
+    await this.notificationRepo.query(`
+      CREATE TABLE IF NOT EXISTS notification_records (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        "userId" varchar NOT NULL,
+        title varchar NOT NULL,
+        body text NOT NULL,
+        url varchar,
+        tag varchar,
+        data jsonb,
+        read boolean NOT NULL DEFAULT false,
+        "createdAt" timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+    await this.notificationRepo.query('CREATE INDEX IF NOT EXISTS "IDX_notification_records_user_created" ON notification_records ("userId", "createdAt" DESC)');
+  }
+
+  async listNotifications(userId:string){return this.notificationRepo.find({where:{userId},order:{createdAt:'DESC'},take:100});}
+  async markRead(userId:string,id:string){await this.notificationRepo.update({id,userId},{read:true});return {success:true};}
+  async markAllRead(userId:string){await this.notificationRepo.update({userId,read:false},{read:true});return {success:true};}
 
   // ─── Generate VAPID keys (run once) ──────────────────────────────────────────
 

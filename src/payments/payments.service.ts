@@ -144,6 +144,7 @@ export class PaymentsService {
         email,
         amount: Math.round(amount * 100),
         reference,
+        channels: ['card', 'bank', 'ussd', 'bank_transfer'],
         callback_url: `${this.configService.get('FRONTEND_URL') || 'https://trac.com.ng'}/dashboard/payments?wallet_topup=1`,
         metadata: { purpose: 'wallet_topup', customerId: userId },
       }, { headers: this.headers });
@@ -353,6 +354,7 @@ export class PaymentsService {
           email,
           amount: Math.round(totalCharged * 100),
           reference,
+          channels: ['card', 'bank', 'ussd', 'bank_transfer'],
           callback_url: `${this.configService.get('FRONTEND_URL') || 'https://trac.com.ng'}/dashboard/payments`,
           metadata: {
             jobId,

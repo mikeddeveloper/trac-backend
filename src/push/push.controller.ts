@@ -1,7 +1,7 @@
 // trac-backend/src/push/push.controller.ts
 // Day 24: Push notification endpoints
 
-import { Controller, Post, Delete, Get, Body, Req, UseGuards } from '@nestjs/common';
+import { Controller, Post, Delete, Get, Patch, Param, Body, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { PushService } from './push.service';
 
@@ -31,6 +31,15 @@ export class PushController {
   getVapidPublicKey() {
     return { publicKey: process.env.VAPID_PUBLIC_KEY || '' };
   }
+
+  @Get('notifications')
+  list(@Req() req:any){return this.pushService.listNotifications(req.user.id);}
+
+  @Patch('notifications/read-all')
+  readAll(@Req() req:any){return this.pushService.markAllRead(req.user.id);}
+
+  @Patch('notifications/:id/read')
+  read(@Req() req:any,@Param('id') id:string){return this.pushService.markRead(req.user.id,id);}
 
   // ─── POST /push/test ─────────────────────────────────────────────────────────
   // Send a test notification to yourself

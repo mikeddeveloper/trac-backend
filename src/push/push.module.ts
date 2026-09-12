@@ -6,9 +6,10 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { PushService } from './push.service';
 import { PushController } from './push.controller';
 import { PushSubscription } from './entities/push-subscription.entity';
+import { NotificationRecord } from './entities/notification-record.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([PushSubscription])],
+  imports: [TypeOrmModule.forFeature([PushSubscription,NotificationRecord])],
   controllers: [PushController],
   providers: [PushService],
   exports: [PushService],
