@@ -794,7 +794,10 @@ export class JobsService {
     const job = await this.getJobById(jobId);
     if (job.customerId !== customerId) throw new ForbiddenException('This is not your job');
     if (job.status !== JobStatus.DELIVERED) throw new BadRequestException('Job must be delivered to raise a dispute');
-    if (job.customerConfirmed) throw new BadRequestException('You have already confirmed receipt');
+    const deliveredAt = job.deliveredAt ? new Date(job.deliveredAt).getTime() : Date.now();
+    if (Date.now() - deliveredAt > 24 * 60 * 60 * 1000) {
+      throw new BadRequestException('The 24-hour delivery dispute window has closed. Please contact Trac support');
+    }
     if (job.disputeRaised) return { message: 'Dispute already raised' };
 
     await this.jobRepo.update(jobId, {
