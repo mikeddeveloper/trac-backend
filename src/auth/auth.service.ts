@@ -329,7 +329,12 @@ export class AuthService {
         audience,
       });
       payload = ticket.getPayload();
-    } catch {
+    } catch (error) {
+      this.logger.error(
+        `Google mobile ID token verification failed (audience: ${audience.join(', ')}): ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
       throw new UnauthorizedException('Google sign-in could not be verified');
     }
 
