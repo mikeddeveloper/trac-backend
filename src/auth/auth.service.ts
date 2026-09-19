@@ -332,20 +332,8 @@ export class AuthService {
       });
       payload = ticket.getPayload();
     } catch (error) {
-      let receivedAudience = 'unknown';
-      try {
-        const decoded = JSON.parse(
-          Buffer.from(dto.idToken.split('.')[1], 'base64').toString('utf8'),
-        );
-        const matches = audience.map((value) => value === decoded.aud);
-        const lengths = audience.map((value) => value.length);
-        const audHex = Buffer.from(String(decoded.aud), 'utf8').toString('hex');
-        receivedAudience = `aud=${JSON.stringify(decoded.aud)} len=${String(decoded.aud).length} hex=${audHex} iss=${decoded.iss} azp=${decoded.azp} exactMatches=${JSON.stringify(matches)} configuredLens=${JSON.stringify(lengths)}`;
-      } catch {
-        // token wasn't a decodable JWT at all; leave receivedAudience as 'unknown'
-      }
       this.logger.error(
-        `Google mobile ID token verification failed (expected audience: ${audience.join(', ')}) (token ${receivedAudience}): ${
+        `Google mobile ID token verification failed: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
