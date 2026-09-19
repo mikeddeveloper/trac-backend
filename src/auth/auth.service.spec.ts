@@ -76,6 +76,69 @@ describe('AuthService Google exchange codes', () => {
   });
 });
 
+describe('AuthService mobile Google sign-in', () => {
+  const verifiedPayload = {
+    sub: 'google-123',
+    email: 'driver@example.com',
+    email_verified: true,
+    name: 'Driver Example',
+    picture: 'https://example.com/avatar.jpg',
+  };
+
+  function setup(existing: any = null) {
+    const usersService = {
+      findByGoogleId: jest.fn().mockResolvedValue(existing),
+      findByEmail: jest.fn().mockResolvedValue(existing),
+      create: jest.fn().mockImplementation(async (value) => ({ id: 'new-user', ...value })),
+      updateProfile: jest.fn(),
+      findById: jest.fn(),
+    };
+    const configService = { get: jest.fn().mockReturnValue('google-web-client-id') };
+    const emailService = { sendWelcomeEmail: jest.fn().mockResolvedValue({ success: true }) };
+    const paymentsService = { creditSignupLaunchBonus: jest.fn().mockResolvedValue(undefined) };
+    const service = new AuthService(usersService as any, {} as any, configService as any, emailService as any, paymentsService as any);
+    jest.spyOn((service as any).googleTokenClient, 'verifyIdToken').mockResolvedValue({
+      getPayload: () => verifiedPayload,
+    });
+    jest.spyOn(service, 'generateTokens').mockResolvedValue({
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+    });
+    return { service, usersService };
+  }
+
+  afterEach(() => jest.restoreAllMocks());
+
+  it('requests a phone before creating a new Google account', async () => {
+    const { service, usersService } = setup();
+    await expect(service.mobileGoogleLogin({
+      idToken: 'verified-token',
+      role: UserRole.TRANSPORTER,
+    })).resolves.toEqual(expect.objectContaining({
+      profileRequired: true,
+      profile: expect.objectContaining({ role: UserRole.TRANSPORTER }),
+    }));
+    expect(usersService.create).not.toHaveBeenCalled();
+  });
+
+  it('preserves the chosen public role when completing a Google account', async () => {
+    const { service, usersService } = setup();
+    await expect(service.mobileGoogleLogin({
+      idToken: 'verified-token',
+      role: UserRole.TRANSPORTER,
+      phone: '+2348012345678',
+    })).resolves.toEqual(expect.objectContaining({
+      profileRequired: false,
+      user: expect.objectContaining({ role: UserRole.TRANSPORTER }),
+    }));
+    expect(usersService.create).toHaveBeenCalledWith(expect.objectContaining({
+      role: UserRole.TRANSPORTER,
+      phone: '+2348012345678',
+      emailVerified: true,
+    }));
+  });
+});
+
 describe('AuthService password login', () => {
   it('normalizes email addresses before looking up an account', async () => {
     const usersService = {

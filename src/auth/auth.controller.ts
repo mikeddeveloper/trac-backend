@@ -9,6 +9,7 @@ import { AuthService } from './auth.service';
 import { UsersService } from '../users/users.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
+import { MobileGoogleDto } from './dto/mobile-google.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -43,6 +44,13 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async exchangeGoogleCode(@Body() body: { code: string }) {
     return this.authService.exchangeGoogleCode(body.code);
+  }
+
+  @Throttle({ default: { limit: 8, ttl: 60000 } })
+  @Post('google/mobile')
+  @HttpCode(HttpStatus.OK)
+  async mobileGoogle(@Body() dto: MobileGoogleDto) {
+    return this.authService.mobileGoogleLogin(dto);
   }
 
   @Post('change-password')

@@ -18,10 +18,13 @@ import { LoginDto } from './dto/login.dto';
 import { EmailService } from '../email/email.service';
 import { createHash, randomBytes } from 'crypto';
 import { PaymentsService } from '../payments/payments.service';
+import { OAuth2Client } from 'google-auth-library';
+import { MobileGoogleDto } from './dto/mobile-google.dto';
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+  private readonly googleTokenClient = new OAuth2Client();
   private readonly googleExchangeCodes = new Map<
     string,
     { userId: string; expiresAt: number }
@@ -305,6 +308,110 @@ export class AuthService {
         role: user.role,
         isVerified: user.isVerified,
         emailVerified: user.emailVerified,
+      },
+      ...tokens,
+    };
+  }
+
+  async mobileGoogleLogin(dto: MobileGoogleDto) {
+    const audience = [
+      this.configService.get<string>('GOOGLE_MOBILE_CLIENT_ID'),
+      this.configService.get<string>('GOOGLE_CLIENT_ID'),
+    ].filter((value): value is string => !!value);
+    if (!audience.length) {
+      throw new ServiceUnavailableException('Google sign-in is not configured');
+    }
+
+    let payload;
+    try {
+      const ticket = await this.googleTokenClient.verifyIdToken({
+        idToken: dto.idToken,
+        audience,
+      });
+      payload = ticket.getPayload();
+    } catch {
+      throw new UnauthorizedException('Google sign-in could not be verified');
+    }
+
+    const googleId = payload?.sub;
+    const email = payload?.email?.trim().toLowerCase();
+    const fullName = payload?.name?.trim() || payload?.given_name?.trim();
+    const avatarUrl = payload?.picture || null;
+    if (!googleId || !email || !payload?.email_verified) {
+      throw new UnauthorizedException('Google did not return a verified email address');
+    }
+
+    let user = await this.usersService.findByGoogleId(googleId);
+    if (!user) user = await this.usersService.findByEmail(email);
+
+    const needsPhone = !user?.phone || user.phone === '00000000000';
+    if ((!user || needsPhone) && !dto.phone) {
+      return {
+        profileRequired: true as const,
+        profile: {
+          fullName: fullName || email.split('@')[0],
+          email,
+          avatarUrl,
+          role: user?.role || dto.role || UserRole.CUSTOMER,
+        },
+      };
+    }
+
+    let created = false;
+    if (user) {
+      if (user.isSuspended) throw new UnauthorizedException('Account is suspended');
+      if (user.role === UserRole.ENTERPRISE) {
+        throw new UnauthorizedException('Enterprise access is not available yet');
+      }
+      user = await this.usersService.updateProfile(user.id, {
+        googleId,
+        emailVerified: true,
+        phone: needsPhone ? dto.phone : user.phone,
+        avatarUrl: avatarUrl || user.avatarUrl,
+      });
+    } else {
+      const role = dto.role || UserRole.CUSTOMER;
+      user = await this.usersService.create({
+        googleId,
+        email,
+        fullName: fullName || email.split('@')[0],
+        phone: dto.phone,
+        avatarUrl: avatarUrl || undefined,
+        role,
+        emailVerified: true,
+        isVerified: role === UserRole.CUSTOMER,
+        licenseStatus: 'not_submitted',
+      });
+      created = true;
+      await this.paymentsService?.creditSignupLaunchBonus(user).catch((error: Error) => {
+        this.logger.error(`Google signup launch bonus failed for ${user!.email}: ${error.message}`);
+      });
+      void this.emailService.sendWelcomeEmail({
+        fullName: user.fullName,
+        email: user.email,
+        role: user.role,
+      }).catch((error: Error) => {
+        this.logger.error(`Google signup welcome email failed for ${user!.email}: ${error.message}`);
+      });
+    }
+
+    const tokens = await this.generateTokens(user.id, user.email, user.role);
+    return {
+      profileRequired: false as const,
+      created,
+      user: {
+        id: user.id,
+        fullName: user.fullName,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        isVerified: user.isVerified,
+        emailVerified: true,
+        ninVerified: user.ninVerified,
+        licenseVerified: user.licenseVerified,
+        licenseStatus: user.licenseStatus || 'not_submitted',
+        kycStatus: user.kycStatus,
+        avatarUrl: user.avatarUrl,
       },
       ...tokens,
     };
