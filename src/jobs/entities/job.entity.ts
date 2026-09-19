@@ -23,6 +23,11 @@ export enum JobStatus {
   CANCELLED  = 'cancelled',
 }
 
+export enum JobPaymentMethod {
+  PREPAID = 'prepaid',
+  CASH_ON_DELIVERY = 'cash-on-delivery',
+}
+
 @Entity('jobs')
 export class Job {
   @PrimaryGeneratedColumn('uuid')
@@ -90,6 +95,18 @@ export class Job {
 
   @Column({ nullable: true, type: 'decimal', precision: 15, scale: 2 })
   acceptedAmount!: number;
+
+  @Column({ type: 'enum', enum: JobPaymentMethod, default: JobPaymentMethod.PREPAID })
+  paymentMethod!: JobPaymentMethod;
+
+  @Column({ nullable: true, type: 'decimal', precision: 15, scale: 2 })
+  bookingFee!: number;
+
+  @Column({ default: false })
+  cashReceived!: boolean;
+
+  @Column({ nullable: true, type: 'timestamp' })
+  cashReceivedAt!: Date;
 
   @Column({ nullable: true, type: 'decimal', precision: 10, scale: 2 })
   distanceKm!: number;

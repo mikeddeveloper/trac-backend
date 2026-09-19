@@ -154,6 +154,15 @@ export class JobsController {
     return this.jobsService.toClientJob(job, true, false);
   }
 
+  @Post(':id/cash-received')
+  async confirmCashReceived(
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Req() req: any,
+  ) {
+    if (req.user.role !== 'transporter') throw new ForbiddenException('Only the assigned transporter can confirm cash collection');
+    return this.jobsService.confirmCashReceived(id, req.user.id);
+  }
+
   @Post(':id/cancel')
   async cancelJob(
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,

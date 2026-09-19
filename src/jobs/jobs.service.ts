@@ -12,7 +12,7 @@ import {
 import { randomInt } from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, In, IsNull, Repository } from 'typeorm';
-import { Job, JobStatus } from './entities/job.entity';
+import { Job, JobPaymentMethod, JobStatus } from './entities/job.entity';
 import { User } from '../users/entities/user.entity';
 import { EventsGateway } from '../events/events.gateway';
 import { PushService } from '../push/push.service';
@@ -659,6 +659,9 @@ export class JobsService {
     if (job.status !== JobStatus.IN_TRANSIT) {
       throw new BadRequestException('Job must be in-transit to verify PIN');
     }
+    if (job.paymentMethod === JobPaymentMethod.CASH_ON_DELIVERY && !job.cashReceived) {
+      throw new BadRequestException('Confirm that the full cash payment was received before verifying the delivery PIN');
+    }
     if (job.otpVerified) return { verified: true, message: 'PIN was already verified' };
     if (!job.otpGeneratedAt || Date.now() - new Date(job.otpGeneratedAt).getTime() > 24 * 60 * 60 * 1000) {
       throw new BadRequestException('Delivery PIN has expired. Generate a new PIN.');
@@ -690,6 +693,22 @@ export class JobsService {
     }
 
     return { verified: true, message: 'PIN verified successfully' };
+  }
+
+  async confirmCashReceived(jobId: string, transporterId: string): Promise<Record<string, any>> {
+    const job = await this.getJobById(jobId);
+    if (job.transporterId !== transporterId) throw new ForbiddenException('You are not assigned to this job');
+    if (job.paymentMethod !== JobPaymentMethod.CASH_ON_DELIVERY) throw new BadRequestException('This is not a cash-on-delivery job');
+    if (job.status !== JobStatus.IN_TRANSIT) throw new BadRequestException('Cash can only be confirmed while the delivery is in transit');
+    if (!job.cashReceived) {
+      await this.jobRepo.update(jobId, { cashReceived: true, cashReceivedAt: new Date() });
+      this.eventsGateway.notifyUser(job.customerId, 'payment:cashReceived', {
+        jobId,
+        amount: Number(job.acceptedAmount),
+        message: `The transporter confirmed receipt of NGN ${Number(job.acceptedAmount).toLocaleString()} cash. Give the PIN only if this is correct.`,
+      });
+    }
+    return this.toClientJob(await this.getJobById(jobId), true, false);
   }
 
   // ─── Upload Proof of Delivery ─────────────────────────────────────────────
@@ -772,7 +791,7 @@ export class JobsService {
     // Customer confirmation completes the delivery, but the escrow remains
     // locked until an admin reviews the proof and approves withdrawal. The
     // 24-hour scheduler remains the fallback when no admin is available.
-    if (job.transporterId) {
+    if (job.transporterId && job.paymentMethod !== JobPaymentMethod.CASH_ON_DELIVERY) {
       this.eventsGateway.notifyUser(job.transporterId, 'payment:approvalPending', {
         jobId,
         message: 'Customer confirmed receipt. Your payment is awaiting withdrawal approval.',
@@ -785,7 +804,11 @@ export class JobsService {
       }).catch(() => {});
     }
 
-    return { message: 'Receipt confirmed. Payment is awaiting withdrawal approval.' };
+    return {
+      message: job.paymentMethod === JobPaymentMethod.CASH_ON_DELIVERY
+        ? 'Receipt and cash-on-delivery payment confirmed.'
+        : 'Receipt confirmed. Payment is awaiting withdrawal approval.',
+    };
   }
 
   // ─── Raise Dispute ────────────────────────────────────────────────────────

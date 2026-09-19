@@ -14,7 +14,7 @@ import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import * as crypto from 'crypto';
 import { Payment, PaymentStatus, PaymentType } from './entities/payment.entity';
-import { Job, JobStatus } from '../jobs/entities/job.entity';
+import { Job, JobPaymentMethod, JobStatus } from '../jobs/entities/job.entity';
 import { User, UserRole } from '../users/entities/user.entity';
 import { EventsGateway } from '../events/events.gateway';
 import { PushService } from '../push/push.service';
@@ -231,6 +231,7 @@ export class PaymentsService {
   }
 
   async assertEscrowPaid(jobId: string): Promise<void> {
+    const job = await this.jobRepo.findOne({ where: { id: jobId } });
     const payment = await this.paymentRepo.findOne({
       where: [
         { jobId, type: PaymentType.ESCROW, status: PaymentStatus.SUCCESS },
@@ -240,13 +241,23 @@ export class PaymentsService {
       order: { createdAt: 'DESC' },
     });
     if (!payment) throw new BadRequestException('Payment must be confirmed before this delivery can start');
+    if (job?.paymentMethod === JobPaymentMethod.CASH_ON_DELIVERY && (payment.paystackMeta as any)?.metadata?.paymentMode !== JobPaymentMethod.CASH_ON_DELIVERY) {
+      throw new BadRequestException('The cash-on-delivery booking fee must be confirmed before pickup');
+    }
   }
 
   private async activatePaidJob(payment: Payment): Promise<void> {
     const job = await this.jobRepo.findOne({ where: { id: payment.jobId } });
     if (!job || !job.transporterId || [JobStatus.ACCEPTED, JobStatus.IN_TRANSIT, JobStatus.DELIVERED, JobStatus.CANCELLED].includes(job.status)) return;
-    await this.jobRepo.update(job.id, { status: JobStatus.ACCEPTED });
-    const payload = { jobId: job.id, previousStatus: job.status, newStatus: JobStatus.ACCEPTED, message: 'Payment confirmed. Delivery is ready for pickup.', updatedAt: new Date() };
+    const cashOnDelivery = (payment.paystackMeta as any)?.metadata?.paymentMode === JobPaymentMethod.CASH_ON_DELIVERY;
+    await this.jobRepo.update(job.id, {
+      status: JobStatus.ACCEPTED,
+      ...(cashOnDelivery && { paymentMethod: JobPaymentMethod.CASH_ON_DELIVERY, bookingFee: Number(payment.amount) }),
+    });
+    const message = cashOnDelivery
+      ? `Booking fee confirmed. Recipient must pay NGN ${Number(job.acceptedAmount).toLocaleString()} cash on delivery.`
+      : 'Payment confirmed. Delivery is ready for pickup.';
+    const payload = { jobId: job.id, previousStatus: job.status, newStatus: JobStatus.ACCEPTED, message, updatedAt: new Date() };
     this.eventsGateway.notifyUser(job.customerId, 'job:statusUpdate', payload);
     this.eventsGateway.notifyUser(job.transporterId, 'job:statusUpdate', payload);
     this.eventsGateway.notifyUser(job.transporterId, 'payment:confirmed:transporter', {
@@ -288,6 +299,7 @@ export class PaymentsService {
     jobId: string,
     customerId: string,
     useWallet = false,
+    paymentMode: 'prepaid' | 'cash-on-delivery' = 'prepaid',
   ) {
     const job = await this.jobRepo.findOne({ where: { id: jobId } });
     if (!job) throw new NotFoundException('Job not found');
@@ -305,6 +317,8 @@ export class PaymentsService {
     });
     if (existing && existing.status !== PaymentStatus.FAILED) {
       if (existing.status === PaymentStatus.PENDING && existing.authorizationUrl) {
+        const existingMode = (existing.paystackMeta as any)?.metadata?.paymentMode || 'prepaid';
+        if (existingMode !== paymentMode) throw new BadRequestException('Cancel the pending payment before changing the payment method');
         return {
           authorizationUrl: existing.authorizationUrl,
           reference: existing.reference,
@@ -315,14 +329,19 @@ export class PaymentsService {
       throw new BadRequestException('Payment has already been initialized for this job');
     }
 
-    const amount = Number(job.acceptedAmount);
+    const cashOnDelivery = paymentMode === JobPaymentMethod.CASH_ON_DELIVERY;
+    if (cashOnDelivery && useWallet) throw new BadRequestException('Cash-on-delivery booking fees must be paid through Paystack');
+    const bidAmount = Number(job.acceptedAmount);
     const currency = 'NGN';
     const reference  = `TRAC-${jobId}-${Date.now()}`;
-    const breakdown  = this.calculatePayout(amount, job.distanceKm ? Number(job.distanceKm) : undefined);
+    const breakdown  = this.calculatePayout(bidAmount, job.distanceKm ? Number(job.distanceKm) : undefined);
     // VAT is 7.5% on Trac's commission only — borne by Trac, not added to customer's bill
     const vatAmount  = breakdown.vatOnCommission;
     // Customer pays the agreed delivery amount only
-    const totalCharged = amount;
+    const totalCharged = cashOnDelivery
+      ? Number((breakdown.tracCommission + breakdown.vatOnCommission).toFixed(2))
+      : bidAmount;
+    const amount = totalCharged;
 
     if (useWallet) {
       await this.ensureWalletTables();
@@ -359,10 +378,11 @@ export class PaymentsService {
           metadata: {
             jobId,
             customerId,
+            paymentMode,
             custom_fields: [{
               display_name: 'Payment purpose',
               variable_name: 'payment_purpose',
-              value: 'Secure Trac delivery payment',
+              value: cashOnDelivery ? 'Cash-on-delivery booking fee' : 'Secure Trac delivery payment',
             }],
           },
         },
@@ -380,9 +400,10 @@ export class PaymentsService {
         jobId,
         customerId,
         tracCommission: breakdown.tracCommission,
-        transporterPayout: breakdown.transporterPayout,
-        customerCashback: breakdown.customerCashback,
+        transporterPayout: cashOnDelivery ? 0 : breakdown.transporterPayout,
+        customerCashback: cashOnDelivery ? 0 : breakdown.customerCashback,
         vatAmount,
+        paystackMeta: { metadata: { jobId, customerId, paymentMode } },
       });
       await this.paymentRepo.save(payment);
 
@@ -865,6 +886,9 @@ export class PaymentsService {
 
     const job = await this.jobRepo.findOne({ where: { id: jobId } });
     if (!job || job.transporterId !== transporterId) throw new UnauthorizedException('This job does not belong to you');
+    if (job.paymentMethod === JobPaymentMethod.CASH_ON_DELIVERY) {
+      throw new BadRequestException('Cash-on-delivery earnings are collected directly from the recipient and cannot be withdrawn from Trac');
+    }
 
     if (job.status !== JobStatus.DELIVERED || !job.otpVerified || !job.customerConfirmed) {
       throw new BadRequestException('Delivery must be completed and confirmed before requesting withdrawal');
@@ -894,6 +918,7 @@ export class PaymentsService {
 
     const job = await this.jobRepo.findOne({ where: { id: jobId } });
     if (!job || job.transporterId !== transporterId) throw new UnauthorizedException('Transporter does not match this job');
+    if (job.paymentMethod === JobPaymentMethod.CASH_ON_DELIVERY) throw new BadRequestException('Cash-on-delivery jobs do not have a Trac payout');
     if (job.disputeRaised) throw new BadRequestException('Payout is frozen while this job is disputed');
 
     const transporter = await this.userRepo.findOne({ where: { id: transporterId } });
@@ -1110,27 +1135,29 @@ export class PaymentsService {
 
     const canRequest = (p: Payment) => {
       const job = jobMap[p.jobId];
-      return p.status === PaymentStatus.SUCCESS && job?.status === JobStatus.DELIVERED
+      return job?.paymentMethod !== JobPaymentMethod.CASH_ON_DELIVERY
+        && p.status === PaymentStatus.SUCCESS && job?.status === JobStatus.DELIVERED
         && job.otpVerified && job.customerConfirmed && job.proofOfDeliveryUrl && !job.disputeRaised;
     };
     const availablePayments = payments.filter(canRequest);
 
-    const pendingPayout = payments
+    const payoutPayments = payments.filter(p => jobMap[p.jobId]?.paymentMethod !== JobPaymentMethod.CASH_ON_DELIVERY);
+    const pendingPayout = payoutPayments
       .filter(p => p.status === PaymentStatus.SUCCESS && !canRequest(p))
       .reduce((s, p) => s + Number(p.transporterPayout || 0), 0);
 
     const availableToWithdraw = availablePayments
       .reduce((s, p) => s + Number(p.transporterPayout || 0), 0);
 
-    const totalEarned = payments
+    const totalEarned = payoutPayments
       .filter(p => p.status === PaymentStatus.RELEASED)
       .reduce((s, p) => s + Number(p.transporterPayout || 0), 0);
 
-    const totalCommissionPaid = payments
+    const totalCommissionPaid = payoutPayments
       .filter(p => p.status === PaymentStatus.RELEASED)
       .reduce((s, p) => s + Number(p.tracCommission || 0), 0);
 
-    const awaitingApproval = payments
+    const awaitingApproval = payoutPayments
       .filter(p => p.status === PaymentStatus.HELD)
       .reduce((s, p) => s + Number(p.transporterPayout || 0), 0);
 

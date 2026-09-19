@@ -1,13 +1,13 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { JobsService } from './jobs.service';
-import { JobStatus } from './entities/job.entity';
+import { JobPaymentMethod, JobStatus } from './entities/job.entity';
 
 describe('JobsService pickup transition', () => {
   const makeService = (jobRepo: any, paymentsService: any = {}) => new JobsService(
     jobRepo,
     {} as any,
     {} as any,
-    {} as any,
+    { notifyUser: jest.fn(), broadcast: jest.fn() } as any,
     {} as any,
     {} as any,
     paymentsService,
@@ -75,5 +75,22 @@ describe('JobsService pickup transition', () => {
     const service = makeService({} as any);
     await expect(service.searchOpenJobs('../../etc/passwd'))
       .rejects.toThrow('Search text contains unsupported characters');
+  });
+
+  it('records cash collection only for the assigned transporter', async () => {
+    const cashJob = {
+      id: 'job-1', customerId: 'customer-1', transporterId: 'transporter-1',
+      acceptedAmount: 25000, status: JobStatus.IN_TRANSIT,
+      paymentMethod: JobPaymentMethod.CASH_ON_DELIVERY, cashReceived: false,
+    };
+    const jobRepo = {
+      findOne: jest.fn().mockResolvedValue(cashJob),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
+    };
+    const service = makeService(jobRepo as any);
+
+    await service.confirmCashReceived('job-1', 'transporter-1');
+    expect(jobRepo.update).toHaveBeenCalledWith('job-1', expect.objectContaining({ cashReceived: true }));
+    await expect(service.confirmCashReceived('job-1', 'another-transporter')).rejects.toBeInstanceOf(ForbiddenException);
   });
 });

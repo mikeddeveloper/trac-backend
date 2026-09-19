@@ -24,8 +24,8 @@ export class PaymentsController {
   // ─── POST /payments/initialize ───────────────────────────────────────────────
   @Post('initialize')
   @UseGuards(AuthGuard('jwt'))
-  async initializePayment(@Req() req: any, @Body() body: { jobId: string; amount: number; currency?: string; useWallet?: boolean }) {
-    return this.paymentsService.initializePayment(req.user.email, body.jobId, req.user.id, Boolean(body.useWallet));
+  async initializePayment(@Req() req: any, @Body() body: { jobId: string; amount: number; currency?: string; useWallet?: boolean; paymentMode?: 'prepaid' | 'cash-on-delivery' }) {
+    return this.paymentsService.initializePayment(req.user.email, body.jobId, req.user.id, Boolean(body.useWallet), body.paymentMode);
   }
 
   @Post('wallet/topup')

@@ -69,6 +69,22 @@ describe('PaymentsService launch protections', () => {
     );
   });
 
+  it('charges only the booking fee for a cash-on-delivery job', async () => {
+    await service.initializePayment('customer@example.com', job.id, job.customerId, false, 'cash-on-delivery');
+
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect.stringContaining('/transaction/initialize'),
+      expect.objectContaining({
+        amount: 1_343_750,
+        metadata: expect.objectContaining({ paymentMode: 'cash-on-delivery' }),
+      }),
+      expect.any(Object),
+    );
+    expect(paymentRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: 13437.5, customerId: job.customerId, jobId: job.id }),
+    );
+  });
+
   it('does not let another customer initialize payment for the job', async () => {
     await expect(service.initializePayment('attacker@example.com', job.id, 'customer-2'))
       .rejects.toBeInstanceOf(UnauthorizedException);
