@@ -317,7 +317,9 @@ export class AuthService {
     const audience = [
       this.configService.get<string>('GOOGLE_MOBILE_CLIENT_ID'),
       this.configService.get<string>('GOOGLE_CLIENT_ID'),
-    ].filter((value): value is string => !!value);
+    ]
+      .map((value) => value?.trim())
+      .filter((value): value is string => !!value);
     if (!audience.length) {
       throw new ServiceUnavailableException('Google sign-in is not configured');
     }
@@ -336,7 +338,9 @@ export class AuthService {
           Buffer.from(dto.idToken.split('.')[1], 'base64').toString('utf8'),
         );
         const matches = audience.map((value) => value === decoded.aud);
-        receivedAudience = `aud=${JSON.stringify(decoded.aud)} (typeof ${typeof decoded.aud}, isArray ${Array.isArray(decoded.aud)}) iss=${decoded.iss} azp=${decoded.azp} exactMatches=${JSON.stringify(matches)}`;
+        const lengths = audience.map((value) => value.length);
+        const audHex = Buffer.from(String(decoded.aud), 'utf8').toString('hex');
+        receivedAudience = `aud=${JSON.stringify(decoded.aud)} len=${String(decoded.aud).length} hex=${audHex} iss=${decoded.iss} azp=${decoded.azp} exactMatches=${JSON.stringify(matches)} configuredLens=${JSON.stringify(lengths)}`;
       } catch {
         // token wasn't a decodable JWT at all; leave receivedAudience as 'unknown'
       }
