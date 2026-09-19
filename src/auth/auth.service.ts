@@ -335,7 +335,8 @@ export class AuthService {
         const decoded = JSON.parse(
           Buffer.from(dto.idToken.split('.')[1], 'base64').toString('utf8'),
         );
-        receivedAudience = `aud=${decoded.aud} iss=${decoded.iss} azp=${decoded.azp}`;
+        const matches = audience.map((value) => value === decoded.aud);
+        receivedAudience = `aud=${JSON.stringify(decoded.aud)} (typeof ${typeof decoded.aud}, isArray ${Array.isArray(decoded.aud)}) iss=${decoded.iss} azp=${decoded.azp} exactMatches=${JSON.stringify(matches)}`;
       } catch {
         // token wasn't a decodable JWT at all; leave receivedAudience as 'unknown'
       }
