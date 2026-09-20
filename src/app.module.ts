@@ -22,6 +22,7 @@ import { WaybillModule } from './waybill/waybill.module';
 import { EmailModule } from './email/email.module';
 import { VerificationModule } from './verification/verification.module';
 import { CallingModule } from './calling/calling.module';
+import { AddressesModule } from './addresses/addresses.module';
 import { User } from './users/entities/user.entity';
 import { Job } from './jobs/entities/job.entity';
 import { Bid } from './bids/entities/bid.entity';
@@ -30,6 +31,7 @@ import { Rating } from './ratings/entities/rating.entity';
 import { Dispute } from './disputes/entities/dispute.entity';
 import { PushSubscription } from './push/entities/push-subscription.entity';
 import { NotificationRecord } from './push/entities/notification-record.entity';
+import { SavedAddress } from './addresses/entities/saved-address.entity';
 
 @Module({
   imports: [
@@ -40,7 +42,7 @@ import { NotificationRecord } from './push/entities/notification-record.entity';
       useFactory: () => ({
         type: 'postgres',
         url: process.env.DATABASE_URL,
-        entities: [User, Job, Bid, Payment, Rating, Dispute, PushSubscription, NotificationRecord],
+        entities: [User, Job, Bid, Payment, Rating, Dispute, PushSubscription, NotificationRecord, SavedAddress],
         synchronize: process.env.NODE_ENV !== 'production' && process.env.TYPEORM_SYNC === 'true',
         ssl: process.env.NODE_ENV === 'production'
           ? { rejectUnauthorized: false }
@@ -63,6 +65,7 @@ import { NotificationRecord } from './push/entities/notification-record.entity';
     CallingModule,
     EmailModule,
     VerificationModule,
+    AddressesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
