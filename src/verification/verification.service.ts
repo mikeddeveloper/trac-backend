@@ -300,6 +300,7 @@ export class VerificationService {
       title: '✅ License Verified!',
       body: 'Your driver license has been approved. You now have full dashboard access.',
       icon: '/icon-192.png',
+      tag: 'license-approved',
     }).catch(() => {});
 
     await this.emailService.sendLicenseApprovedEmail({
@@ -328,6 +329,7 @@ export class VerificationService {
       title: '❌ License Rejected',
       body: `Your license was rejected: ${reason}. Please resubmit.`,
       icon: '/icon-192.png',
+      tag: 'license-rejected',
     }).catch(() => {});
 
     await this.emailService.sendLicenseRejectedEmail({

@@ -72,7 +72,7 @@ export class RatingsService {
     // ── Push: notify recipient of new rating ──
     await this.pushService.sendToUser(
       toUserId,
-      this.pushService.templates.newRating(stars),
+      { ...this.pushService.templates.newRating(stars), data: { jobId } },
     ).catch(() => {});
 
     return saved;

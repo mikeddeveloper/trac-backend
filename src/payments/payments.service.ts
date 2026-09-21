@@ -267,6 +267,7 @@ export class PaymentsService {
     await this.pushService.sendToUser(job.transporterId, {
       title: '💰 Payment Confirmed', body: `Customer paid ₦${Number(payment.amount).toLocaleString()}. Head to pickup now!`,
       url: '/dashboard/tracking', tag: 'payment', icon: '/icons/icon-192x192.png',
+      data: { jobId: job.id },
     }).catch(() => {});
   }
 
@@ -645,6 +646,7 @@ export class PaymentsService {
       url: '/dashboard/payments',
       tag: 'payment-refunded',
       icon: '/icons/icon-192x192.png',
+      data: { jobId: payment.jobId },
     }).catch(() => {});
   }
 
@@ -745,7 +747,7 @@ export class PaymentsService {
           message: `₦${amount} has been released to your account.`,
         });
         await this.pushService.sendToUser(job.transporterId,
-          this.pushService.templates.payoutReleased(amount),
+          { ...this.pushService.templates.payoutReleased(amount), data: { jobId: payment.jobId } },
         ).catch(() => {});
         const transporter = await this.userRepo.findOne({ where: { id: job.transporterId } });
         if (transporter && typeof this.emailService.sendActivityEmail === 'function') await this.emailService.sendActivityEmail(
@@ -862,6 +864,7 @@ export class PaymentsService {
         url: '/dashboard/earnings',
         tag: 'payout',
         icon: '/icons/icon-192x192.png',
+        data: { jobId },
       }).catch(() => {});
     }
 

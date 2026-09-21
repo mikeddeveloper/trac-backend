@@ -97,6 +97,7 @@ export class DisputesService {
         body: 'A dispute has been raised on your delivery job',
         url: '/dashboard/disputes',
         tag: 'dispute',
+        data: { jobId, disputeId: saved.id },
       }).catch(() => {});
     }
 
@@ -196,6 +197,7 @@ export class DisputesService {
       body: 'Your dispute has been resolved by admin',
       url: '/dashboard/disputes',
       tag: 'dispute-resolved',
+      data: { jobId: dispute.jobId, disputeId },
     }).catch(() => {});
 
     if (otherPartyId) {
@@ -205,6 +207,7 @@ export class DisputesService {
         body: 'Your dispute has been resolved by admin',
         url: '/dashboard/disputes',
         tag: 'dispute-resolved',
+        data: { jobId: dispute.jobId, disputeId },
       }).catch(() => {});
     }
 

@@ -435,6 +435,7 @@ export class JobsService {
           url: '/dashboard/tracking',
           tag: 'delivery-pin',
           icon: '/icons/icon-192x192.png',
+          data: { jobId },
         }).catch(() => {});
       }
       this.eventsGateway.notifyUser(userId, 'otp:generated:transporter', {
@@ -482,6 +483,7 @@ export class JobsService {
           body: 'Open Trac to confirm you received your goods and release payment to the driver.',
           url: '/dashboard/tracking',
           tag: 'confirm-receipt',
+          data: { jobId },
         }).catch(() => {});
       }
     }
@@ -490,14 +492,14 @@ export class JobsService {
     if (newStatus === JobStatus.IN_TRANSIT && updatedJob.customerId) {
       await this.pushService.sendToUser(
         updatedJob.customerId,
-        this.pushService.templates.jobPickedUp(route),
+        { ...this.pushService.templates.jobPickedUp(route), data: { jobId } },
       ).catch(() => {});
     }
 
     if (newStatus === JobStatus.DELIVERED && updatedJob.customerId) {
       await this.pushService.sendToUser(
         updatedJob.customerId,
-        this.pushService.templates.jobDelivered(route),
+        { ...this.pushService.templates.jobDelivered(route), data: { jobId } },
       ).catch(() => {});
     }
 
@@ -507,6 +509,7 @@ export class JobsService {
         body: 'Delivery confirmed! Your payment will be released shortly.',
         url: '/dashboard/earnings',
         tag: 'delivered',
+        data: { jobId },
       }).catch(() => {});
     }
 
@@ -516,6 +519,7 @@ export class JobsService {
         body: 'The job has been cancelled by the customer',
         url: '/dashboard/tracking',
         tag: 'cancelled',
+        data: { jobId },
       }).catch(() => {});
     }
 
@@ -636,6 +640,7 @@ export class JobsService {
         url: '/dashboard/tracking',
         tag: 'delivery-pin',
         icon: '/icons/icon-192x192.png',
+        data: { jobId },
       }).catch(() => {});
     }
 
@@ -801,6 +806,7 @@ export class JobsService {
         body: 'Your payment is awaiting withdrawal approval. We will notify you when it is available.',
         url: '/dashboard/earnings',
         tag: 'payment-approval-pending',
+        data: { jobId },
       }).catch(() => {});
     }
 

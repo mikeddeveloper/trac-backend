@@ -210,6 +210,8 @@ export class AdminService {
           title: '✅ Dispute Resolved',
           body: `Your delivery dispute has been resolved: ${resolutionNote}`,
           icon: '/icon-192.png',
+          tag: 'dispute-resolved',
+          data: { jobId: dispute.jobId, disputeId: id },
         }).catch(() => {});
       }
     }
@@ -366,6 +368,7 @@ export class AdminService {
       title: '✅ Account Verified!',
       body: 'Your account has been verified by admin. You can now bid on jobs.',
       icon: '/icon-192.png',
+      tag: 'account-verified',
     }).catch(() => {});
 
     return { message: 'User verified successfully' };
@@ -555,6 +558,7 @@ export class AdminService {
         body: 'Your launch bonus is ready and can be used toward a delivery on Trac.',
         icon: '/icon-192.png',
         url: '/dashboard/payments',
+        tag: 'wallet-bonus',
       }).catch(() => undefined);
       await this.emailService.sendActivityEmail(
         user,
@@ -1160,6 +1164,7 @@ export class AdminService {
       title: '✅ Account Verified!',
       body: 'Your account has been verified by admin. You can now bid on jobs.',
       icon: '/icon-192.png',
+      tag: 'account-verified',
     }).catch(() => {});
 
     return { message: 'User verified successfully' };
@@ -1179,6 +1184,7 @@ export class AdminService {
       title: '❌ Verification Rejected',
       body: `Your verification was rejected: ${reason}`,
       icon: '/icon-192.png',
+      tag: 'kyc-rejected',
     }).catch(() => {});
 
     return { message: 'Verification rejected' };
@@ -1318,6 +1324,7 @@ export class AdminService {
       title: '⚠️ Verification Revoked',
       body: 'Your verification has been revoked by admin. Please contact support.',
       icon: '/icon-192.png',
+      tag: 'verification-revoked',
     }).catch(() => {});
 
     return { message: 'Verification revoked' };
@@ -1564,6 +1571,8 @@ export class AdminService {
           title: '✅ Dispute Resolved',
           body: 'Dispute resolved in your favor. Your refund is being processed to your original payment method.',
           icon: '/icon-192.png',
+          tag: 'dispute-resolved',
+          data: { jobId: job.id },
         }).catch(() => {});
       }
 
@@ -1576,6 +1585,8 @@ export class AdminService {
           title: '❌ Dispute Resolved',
           body: 'The dispute was resolved in favor of the customer.',
           icon: '/icon-192.png',
+          tag: 'dispute-resolved',
+          data: { jobId: job.id },
         }).catch(() => {});
       }
     }
@@ -1613,6 +1624,8 @@ export class AdminService {
           title: '✅ Dispute Resolved',
           body: 'Dispute resolved in your favor. Payment has been released.',
           icon: '/icon-192.png',
+          tag: 'dispute-resolved',
+          data: { jobId: job.id },
         }).catch(() => {});
       }
 
@@ -1625,6 +1638,8 @@ export class AdminService {
           title: '❌ Dispute Resolved',
           body: 'The dispute was resolved in favor of the transporter.',
           icon: '/icon-192.png',
+          tag: 'dispute-resolved',
+          data: { jobId: job.id },
         }).catch(() => {});
       }
     }

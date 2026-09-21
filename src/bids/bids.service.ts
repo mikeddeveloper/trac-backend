@@ -76,7 +76,7 @@ export class BidsService {
       const route = `${job.pickupState} → ${job.deliveryState}`;
       await this.pushService.sendToUser(
         job.customerId,
-        this.pushService.templates.newBid(route, Number(amount).toLocaleString('en-NG')),
+        { ...this.pushService.templates.newBid(route, Number(amount).toLocaleString('en-NG')), data: { jobId } },
       ).catch(() => {});
       const customer = await this.userRepo.findOne({ where: { id: job.customerId } });
       if (customer) await this.emailService.sendActivityEmail(
@@ -158,6 +158,14 @@ export class BidsService {
     });
 
     const route = `${bid.job.pickupState} → ${bid.job.deliveryState}`;
+
+    // ── Push: notify transporter their bid was accepted ──
+    // (previously missing entirely — the winning transporter only found out via
+    // socket, which only works while the app is foregrounded and connected)
+    await this.pushService.sendToUser(bid.transporterId, {
+      ...this.pushService.templates.bidAccepted(route),
+      data: { jobId: bid.jobId },
+    }).catch(() => {});
     const transporter = await this.userRepo.findOne({ where: { id: bid.transporterId } });
     if (transporter) await this.emailService.sendActivityEmail(
       transporter,
@@ -198,6 +206,7 @@ export class BidsService {
       body: 'Your bid was not selected for this job',
       url: '/dashboard/bids',
       tag: 'bid-rejected',
+      data: { jobId: bid.jobId },
     }).catch(() => {});
 
     return saved;
