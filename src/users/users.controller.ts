@@ -9,10 +9,28 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthGuard } from '@nestjs/passport';
 import { UsersService } from './users.service';
 import { memoryStorage } from 'multer';
-import { join } from 'path';
-import * as fs from 'fs';
+import { v2 as cloudinary } from 'cloudinary';
 import * as bcrypt from 'bcrypt';
-import { detectSafeImage, extensionForImage } from '../common/security/image-signature';
+import { detectSafeImage } from '../common/security/image-signature';
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key:    process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+function uploadAvatarToCloudinary(buffer: Buffer, publicId: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      { folder: 'trac-avatars', public_id: publicId, resource_type: 'image' },
+      (error, result) => {
+        if (error) reject(error);
+        else resolve(result!.secure_url);
+      },
+    );
+    stream.end(buffer);
+  });
+}
 
 @Controller('users')
 export class UsersController {
@@ -100,12 +118,8 @@ export class UsersController {
     if (!file) throw new BadRequestException('No file uploaded');
     const mime = detectSafeImage(file.buffer);
     if (!mime) throw new BadRequestException('The uploaded file is not a valid JPEG, PNG, or WebP image');
-    const dir = join(process.cwd(), 'uploads', 'avatars');
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    const filename = `${req.user.id}_${Date.now()}${extensionForImage(mime)}`;
-    fs.writeFileSync(join(dir, filename), file.buffer, { flag: 'wx' });
-    const baseUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3001}`;
-    const avatarUrl = `${baseUrl}/uploads/avatars/${filename}`;
+    const publicId = `avatar-${req.user.id}-${Date.now()}`;
+    const avatarUrl = await uploadAvatarToCloudinary(file.buffer, publicId);
     await this.usersService.updateProfile(req.user.id, { avatarUrl } as any);
     return { avatarUrl };
   }

@@ -165,6 +165,9 @@ export class AuthService {
         licenseStatus: user.licenseStatus || 'not_submitted',
         kycStatus: user.kycStatus,
         avatarUrl: user.avatarUrl,
+        rating: user.rating,
+        totalRatings: user.totalRatings,
+        tripsCompleted: user.tripsCompleted,
       },
       ...tokens,
     };
