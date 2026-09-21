@@ -53,6 +53,15 @@ export class PaymentsController {
     return this.paymentsService.cancelPendingPayment(reference, req.user.id);
   }
 
+  // Cancels any pending escrow payment for a job without needing its reference —
+  // used by the mobile app to recover from switching payment method mid-checkout.
+  @Post('cancel-job/:jobId')
+  @UseGuards(AuthGuard('jwt'))
+  async cancelJobPayments(@Param('jobId') jobId: string, @Req() req: any) {
+    await this.paymentsService.cancelPendingPaymentsForJob(jobId, req.user.id);
+    return { status: 'cancelled' };
+  }
+
   // ─── GET /payments/payout/:amount ───────────────────────────────────────────
   @Get('payout/:amount')
   @UseGuards(AuthGuard('jwt'))
