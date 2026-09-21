@@ -688,4 +688,50 @@ export class EmailService {
       return { success: false };
     }
   }
+
+  async sendSupportTicketEmail(ticket: {
+    ticketId: string;
+    userName: string;
+    userEmail: string;
+    topic: string;
+    message: string;
+  }) {
+    const html = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#F8FAFC;font-family:'Helvetica Neue',Arial,sans-serif;">
+<div style="max-width:600px;margin:0 auto;padding:40px 20px;">
+  <div style="background:linear-gradient(135deg,#1E3A5F,#2A4F7C);border-radius:16px;padding:32px;text-align:center;margin-bottom:24px;">
+    <h1 style="color:#6EC89A;font-size:1.8rem;font-weight:900;margin:0;">🎫 New Support Request</h1>
+  </div>
+  <div style="background:white;border-radius:16px;padding:32px;margin-bottom:24px;box-shadow:0 4px 16px rgba(0,0,0,0.06);">
+    <h2 style="color:#1E3A5F;font-size:1.2rem;font-weight:800;margin:0 0 16px;">A customer needs help</h2>
+    <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+      <tr><td style="padding:8px 0;color:#64748B;width:140px;">Ticket ID</td><td style="color:#1E3A5F;font-weight:600;">${ticket.ticketId}</td></tr>
+      <tr><td style="padding:8px 0;color:#64748B;">From</td><td style="color:#1E3A5F;font-weight:600;">${ticket.userName} (${ticket.userEmail})</td></tr>
+      <tr><td style="padding:8px 0;color:#64748B;">Category</td><td style="color:#1E3A5F;font-weight:600;">${ticket.topic}</td></tr>
+      <tr><td style="padding:8px 0;color:#64748B;vertical-align:top;">Message</td><td style="color:#1E3A5F;font-weight:600;">${ticket.message}</td></tr>
+    </table>
+  </div>
+</div>
+</body>
+</html>`;
+
+    try {
+      const adminEmail = this.configService.get<string>('ADMIN_EMAIL') || 'mikeddev6@gmail.com';
+      const { data, error } = await this.sendEmail({
+        from: this.fromAddress,
+        to: adminEmail,
+        subject: `🎫 Support: ${ticket.topic} — ${ticket.userName}`,
+        html,
+      });
+      if (error) { this.logger.error('Support ticket email error:', JSON.stringify(error)); return { success: false }; }
+      this.logger.log(`✅ Support ticket email sent to admin`);
+      return { success: true, data };
+    } catch (error: any) {
+      this.logger.error('Support ticket email error:', error?.message);
+      return { success: false };
+    }
+  }
 }
