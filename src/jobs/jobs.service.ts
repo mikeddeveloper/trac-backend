@@ -301,6 +301,9 @@ export class JobsService {
   }
 
   toClientJob(job: Job, includeDeliveryDetails = false, includeDeliveryOtp = includeDeliveryDetails): Record<string, any> {
+    // Phone numbers are only shared with the other party once a job pairs
+    // them together (includeDeliveryDetails is only true for the job's own
+    // customer/transporter, never for transporters browsing open jobs).
     const safeParty = (user?: User) => user ? {
       id: user.id,
       fullName: user.fullName,
@@ -310,6 +313,7 @@ export class JobsService {
       avatarUrl: user.avatarUrl,
       vehicleType: user.vehicleType,
       state: user.state,
+      ...(includeDeliveryDetails ? { phone: user.phone } : {}),
     } : undefined;
     const safeJob: Record<string, any> = {
       ...job,
