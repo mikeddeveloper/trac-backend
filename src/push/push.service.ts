@@ -158,6 +158,12 @@ export class PushService implements OnModuleInit {
 
   // ─── Notification templates ───────────────────────────────────────────────────
 
+  // A little personality on the moments customers actually get excited about --
+  // never on payments/payouts/disputes, those stay plain and unambiguous.
+  private withPidginFlavor<T extends { body: string }>(standard: T, pidginBody: string): T {
+    return Math.random() < 0.2 ? { ...standard, body: pidginBody } : standard;
+  }
+
   templates = {
     newBid: (jobRoute: string, amount: string) => ({
       title: '🏷️ New Bid Received',
@@ -165,30 +171,30 @@ export class PushService implements OnModuleInit {
       url: '/dashboard/deliveries',
       tag: 'new-bid',
     }),
-    bidAccepted: (jobRoute: string) => ({
+    bidAccepted: (jobRoute: string) => this.withPidginFlavor({
       title: '✅ Bid Accepted!',
       body: `Your bid on ${jobRoute} was accepted. Get ready to deliver!`,
       url: '/dashboard/tracking',
       tag: 'bid-accepted',
-    }),
+    }, `Oga, dem accept your bid for ${jobRoute}! Make you ready to move.`),
     paymentConfirmed: (amount: string) => ({
       title: '💰 Payment Confirmed',
       body: `₦${amount} is now secured for your delivery`,
       url: '/dashboard/payments',
       tag: 'payment',
     }),
-    jobPickedUp: (jobRoute: string) => ({
+    jobPickedUp: (jobRoute: string) => this.withPidginFlavor({
       title: '🚚 Cargo Picked Up',
       body: `Your cargo is on its way — ${jobRoute}`,
       url: '/dashboard/tracking',
       tag: 'pickup',
-    }),
-    jobDelivered: (jobRoute: string) => ({
+    }, `Oya, your package don dey road — ${jobRoute}.`),
+    jobDelivered: (jobRoute: string) => this.withPidginFlavor({
       title: '📦 Delivery Complete!',
       body: `Your ${jobRoute} delivery has been completed`,
       url: '/dashboard/tracking',
       tag: 'delivered',
-    }),
+    }, `Correct delivery! Your ${jobRoute} package don land safely.`),
     payoutReleased: (amount: string) => ({
       title: '💸 Payout Released',
       body: `₦${amount} has been sent to your bank account`,
