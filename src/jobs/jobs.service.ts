@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { randomInt } from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Brackets, In, IsNull, Repository } from 'typeorm';
+import { Brackets, In, IsNull, MoreThan, Repository } from 'typeorm';
 import { Job, JobPaymentMethod, JobStatus } from './entities/job.entity';
 import { User } from '../users/entities/user.entity';
 import { EventsGateway } from '../events/events.gateway';
@@ -164,8 +164,8 @@ export class JobsService {
   async getOpenJobs(transporterId: string): Promise<Job[]> {
     return this.jobRepo.find({
       where: [
-        { status: JobStatus.BIDDING, invitedTransporterId: IsNull() },
-        { status: JobStatus.BIDDING, invitedTransporterId: transporterId },
+        { status: JobStatus.BIDDING, invitedTransporterId: IsNull(), deadline: MoreThan(new Date()) },
+        { status: JobStatus.BIDDING, invitedTransporterId: transporterId, deadline: MoreThan(new Date()) },
       ],
       order: { createdAt: 'DESC' },
     });
@@ -206,6 +206,7 @@ export class JobsService {
 
     const query = this.jobRepo.createQueryBuilder('job')
       .where('job.status = :status', { status: JobStatus.BIDDING })
+      .andWhere('job.deadline > :now', { now: new Date() })
       .andWhere(new Brackets(builder => {
         builder.where('job."invitedTransporterId" IS NULL');
         if (transporterId) builder.orWhere('job."invitedTransporterId" = :transporterId', { transporterId });

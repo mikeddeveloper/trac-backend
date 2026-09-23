@@ -1241,6 +1241,12 @@ export class PaymentsService {
       doc.roundedRect(margin, 125, 90, 22, 5).fill('#22C55E');
       doc.fontSize(9).font('Helvetica-Bold').fillColor('#fff').text(statusLabel, margin + 10, 131);
 
+      // PDFKit's built-in Helvetica only supports WinAnsi/Latin-1 -- the
+      // Naira sign, arrows and any emoji in free-text fields render as
+      // garbage glyphs, so strip/replace them before drawing.
+      const safe = (s: string) => s.replace(/[^\x20-\x7E–—]/g, '').trim();
+      const money = (n: number) => `NGN ${Number(n).toLocaleString('en-NG')}`;
+
       let y = 168;
       const sectionHeader = (title: string, yPos: number) => {
         doc.rect(margin, yPos, contentW, 24).fill('#F8FAFC');
@@ -1257,14 +1263,14 @@ export class PaymentsService {
 
       y = sectionHeader('PAYMENT DETAILS', y);
       y = row('Reference', payment.reference, y);
-      y = row('Amount Paid', `₦${Number(payment.amount).toLocaleString('en-NG')}`, y, true);
+      y = row('Amount Paid', money(Number(payment.amount)), y, true);
       y = row('Payment Method', 'Paystack', y);
       y = row('Date Paid', payment.paidAt ? new Date(payment.paidAt).toLocaleString('en-NG') : new Date(payment.createdAt).toLocaleString('en-NG'), y);
       if (job) {
         y += 14;
         y = sectionHeader('DELIVERY', y);
-        y = row('Route', `${job.pickupState || ''} → ${job.deliveryState || ''}`, y);
-        y = row('Item', job.cargoDescription || '—', y);
+        y = row('Route', `${safe(job.pickupState || '')} to ${safe(job.deliveryState || '')}`, y);
+        y = row('Item', safe(job.cargoDescription || '') || '—', y);
       }
 
       y += 30;
