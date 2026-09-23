@@ -13,6 +13,8 @@ import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import * as crypto from 'crypto';
+import * as QRCode from 'qrcode';
+import PDFDocument = require('pdfkit');
 import { Payment, PaymentStatus, PaymentType } from './entities/payment.entity';
 import { Job, JobPaymentMethod, JobStatus } from '../jobs/entities/job.entity';
 import { User, UserRole } from '../users/entities/user.entity';
@@ -1181,6 +1183,131 @@ export class PaymentsService {
       totalJobs: payments.length,
       payoutConfigured: Boolean(transporter?.recipientCode),
     };
+  }
+
+  private get publicApiUrl() {
+    return (this.configService.get<string>('PUBLIC_API_URL') || 'https://trac-backend-399c.onrender.com').replace(/\/$/, '');
+  }
+
+  // ─── Payment receipt (PDF, with QR verification code) ─────────────────────
+  async getReceiptPdf(reference: string, userId: string): Promise<Buffer> {
+    const payment = await this.paymentRepo.findOne({ where: { reference } });
+    if (!payment || payment.customerId !== userId) throw new NotFoundException('Receipt not found');
+    if (![PaymentStatus.SUCCESS, PaymentStatus.HELD, PaymentStatus.RELEASED].includes(payment.status)) {
+      throw new BadRequestException('This payment has not been confirmed yet');
+    }
+    const job = payment.jobId ? await this.jobRepo.findOne({ where: { id: payment.jobId } }) : null;
+    const verifyUrl = `${this.publicApiUrl}/api/payments/verify-receipt/${encodeURIComponent(reference)}`;
+    const qrPng = await QRCode.toBuffer(verifyUrl, { type: 'png', width: 220, margin: 1, color: { dark: '#1E3A5F', light: '#FFFFFF' } });
+
+    return new Promise((resolve, reject) => {
+      const doc = new PDFDocument({ size: 'A4', margin: 50 });
+      const buffers: Buffer[] = [];
+      doc.on('data', (chunk) => buffers.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(buffers)));
+      doc.on('error', reject);
+
+      const navy = '#1E3A5F', mint = '#6EC89A', gray = '#64748B', dark = '#111827';
+      const pageW = doc.page.width;
+      const margin = 50;
+      const contentW = pageW - margin * 2;
+
+      doc.rect(0, 0, pageW, 110).fill(navy);
+      doc.fontSize(26).font('Helvetica-Bold').fillColor('#fff').text('TRAC', margin, 30);
+      doc.fontSize(9).font('Helvetica').fillColor(mint).text('MARKETPLACE', margin, 60);
+      doc.fontSize(8).fillColor('rgba(255,255,255,0.5)').text("Nigeria's Modern Logistics Platform", margin, 75);
+      doc.fontSize(20).font('Helvetica-Bold').fillColor('#fff').text('RECEIPT', pageW - 200, 32, { width: 150, align: 'right' });
+      doc.fontSize(11).font('Helvetica').fillColor(mint).text(`#${reference}`, pageW - 200, 58, { width: 150, align: 'right' });
+      const now = new Date();
+      doc.fontSize(8).fillColor('rgba(255,255,255,0.5)').text(`Issued: ${now.toLocaleDateString('en-NG', { day: 'numeric', month: 'long', year: 'numeric' })}`, pageW - 200, 78, { width: 150, align: 'right' });
+
+      const statusLabel = payment.status === PaymentStatus.SUCCESS ? 'PAID' : payment.status.toUpperCase();
+      doc.roundedRect(margin, 125, 90, 22, 5).fill('#22C55E');
+      doc.fontSize(9).font('Helvetica-Bold').fillColor('#fff').text(statusLabel, margin + 10, 131);
+
+      let y = 168;
+      const sectionHeader = (title: string, yPos: number) => {
+        doc.rect(margin, yPos, contentW, 24).fill('#F8FAFC');
+        doc.fontSize(9).font('Helvetica-Bold').fillColor(navy).text(title, margin + 10, yPos + 7);
+        return yPos + 32;
+      };
+      const row = (label: string, value: string, yPos: number, highlight = false) => {
+        if (highlight) doc.rect(margin, yPos, contentW, 20).fill('#F0FDF4');
+        doc.fontSize(8).font('Helvetica').fillColor(gray).text(label, margin + 10, yPos + 4);
+        doc.fontSize(8).font('Helvetica-Bold').fillColor(dark).text(value || '—', margin + 150, yPos + 4, { width: contentW - 160 });
+        doc.moveTo(margin, yPos + 20).lineTo(margin + contentW, yPos + 20).strokeColor('#F1F5F9').lineWidth(0.5).stroke();
+        return yPos + 20;
+      };
+
+      y = sectionHeader('PAYMENT DETAILS', y);
+      y = row('Reference', payment.reference, y);
+      y = row('Amount Paid', `₦${Number(payment.amount).toLocaleString('en-NG')}`, y, true);
+      y = row('Payment Method', 'Paystack', y);
+      y = row('Date Paid', payment.paidAt ? new Date(payment.paidAt).toLocaleString('en-NG') : new Date(payment.createdAt).toLocaleString('en-NG'), y);
+      if (job) {
+        y += 14;
+        y = sectionHeader('DELIVERY', y);
+        y = row('Route', `${job.pickupState || ''} → ${job.deliveryState || ''}`, y);
+        y = row('Item', job.cargoDescription || '—', y);
+      }
+
+      y += 30;
+      doc.image(qrPng, margin, y, { width: 110, height: 110 });
+      doc.fontSize(8).font('Helvetica-Bold').fillColor(navy).text('SCAN TO VERIFY', margin + 130, y + 30);
+      doc.fontSize(7.5).font('Helvetica').fillColor(gray).text('Scan this code with any phone camera to confirm this receipt is genuine and matches our records.', margin + 130, y + 46, { width: contentW - 140 });
+
+      const footerY = doc.page.height - 40;
+      doc.rect(0, footerY, pageW, 40).fill(navy);
+      doc.fontSize(7.5).font('Helvetica').fillColor('rgba(255,255,255,0.5)')
+        .text('Trac Marketplace  |  tracmarketplace.com  |  support@tracmarketplace.com', margin, footerY + 8, { width: contentW, align: 'center' });
+      doc.fontSize(7).fillColor('rgba(255,255,255,0.3)')
+        .text(`Generated: ${now.toLocaleString('en-NG')}  |  Ref: ${payment.reference}`, margin, footerY + 22, { width: contentW, align: 'center' });
+
+      doc.end();
+    });
+  }
+
+  // ─── Public receipt verification page (what the QR code resolves to) ──────
+  async getPublicReceiptHtml(reference: string): Promise<string> {
+    const escape = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>)[c]);
+    const shell = (body: string) => `<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Trac Logistics — Receipt Verification</title><style>
+      body{margin:0;background:#F6FAFC;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;}
+      .card{max-width:420px;width:100%;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 20px 50px rgba(30,58,95,0.12);}
+      .head{background:#1E3A5F;padding:28px 28px 22px;color:#fff;}
+      .brand{font-weight:800;font-size:22px;letter-spacing:.5px;}
+      .sub{color:#6EC89A;font-size:11px;letter-spacing:1.5px;margin-top:4px;}
+      .body{padding:24px 28px 28px;}
+      .row{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #EEF2F1;font-size:13px;}
+      .row:last-child{border-bottom:none;}
+      .label{color:#64748B;}
+      .value{color:#111827;font-weight:600;text-align:right;}
+      .badge{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:999px;font-size:12px;font-weight:700;margin-top:2px;}
+      .ok{background:#DCFCE7;color:#15803D;}
+      .bad{background:#FEE2E2;color:#B91C1C;}
+      .amount{font-size:28px;font-weight:800;color:#1E3A5F;margin:6px 0 2px;}
+      .foot{text-align:center;padding:16px;font-size:11px;color:#94A3B8;}
+      </style></head><body><div class="card">${body}<div class="foot">Trac Marketplace · tracmarketplace.com</div></div></body></html>`;
+
+    const payment = await this.paymentRepo.findOne({ where: { reference } });
+    if (!payment) {
+      return shell(`<div class="head"><div class="brand">TRAC</div><div class="sub">RECEIPT VERIFICATION</div></div><div class="body"><span class="badge bad">&#10005; NOT FOUND</span><p style="color:#64748B;font-size:13px;margin-top:14px;">We could not find a receipt matching this reference. This code may be invalid or expired.</p></div>`);
+    }
+    const verified = [PaymentStatus.SUCCESS, PaymentStatus.HELD, PaymentStatus.RELEASED].includes(payment.status);
+    const job = payment.jobId ? await this.jobRepo.findOne({ where: { id: payment.jobId } }) : null;
+    const customer = payment.customerId ? await this.userRepo.findOne({ where: { id: payment.customerId } }) : null;
+    const nameParts = (customer?.fullName || '').trim().split(/\s+/).filter(Boolean);
+    const maskedName = nameParts.length ? `${nameParts[0]} ${nameParts.slice(1).map(p => p[0]).join('')}.` : '—';
+    const paidDate = payment.paidAt || payment.createdAt;
+    return shell(`
+      <div class="head"><div class="brand">TRAC</div><div class="sub">RECEIPT VERIFICATION</div></div>
+      <div class="body">
+        <span class="badge ${verified ? 'ok' : 'bad'}">${verified ? '&#10003; VERIFIED' : '&#8987; ' + payment.status.toUpperCase()}</span>
+        <div class="amount">&#8358;${Number(payment.amount).toLocaleString('en-NG')}</div>
+        <div class="row"><span class="label">Reference</span><span class="value">${escape(payment.reference)}</span></div>
+        <div class="row"><span class="label">Paid by</span><span class="value">${escape(maskedName)}</span></div>
+        <div class="row"><span class="label">Date</span><span class="value">${escape(new Date(paidDate).toLocaleString('en-NG'))}</span></div>
+        ${job ? `<div class="row"><span class="label">Route</span><span class="value">${escape(job.pickupState || '')} &#8594; ${escape(job.deliveryState || '')}</span></div>` : ''}
+      </div>`);
   }
 
 }

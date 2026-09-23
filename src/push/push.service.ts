@@ -96,7 +96,7 @@ export class PushService implements OnModuleInit {
       for (const sub of subs) {
         try {
           if(sub.endpoint.startsWith('ExponentPushToken[')||sub.endpoint.startsWith('ExpoPushToken[')){
-            const expoResponse=await fetch('https://exp.host/--/api/v2/push/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:sub.endpoint,title:payload.title,body:payload.body,data:{url:payload.url,tag:payload.tag,...payload.data},sound:'default',channelId:'delivery-updates-v2'})});
+            const expoResponse=await fetch('https://exp.host/--/api/v2/push/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:sub.endpoint,title:payload.title,body:payload.body,data:{url:payload.url,tag:payload.tag,...payload.data},sound:'trac_notify.wav',channelId:'delivery-updates-v3'})});
             if(!expoResponse.ok)throw new Error(`Expo push failed (${expoResponse.status})`);sent++;continue;
           }
           const subscription = {

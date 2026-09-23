@@ -8,6 +8,7 @@ import {
   Body,
   Param,
   Req,
+  Res,
   Headers,
   UseGuards,
   HttpCode,
@@ -15,6 +16,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import type { Response } from 'express';
 import { PaymentsService } from './payments.service';
 
 @Controller('payments')
@@ -45,6 +47,26 @@ export class PaymentsController {
   @UseGuards(AuthGuard('jwt'))
   async verifyPayment(@Param('reference') reference: string, @Req() req: any) {
     return this.paymentsService.verifyPayment(reference, req.user.id);
+  }
+
+  // ─── GET /payments/receipt/:reference — branded PDF receipt with QR code ──
+  @Get('receipt/:reference')
+  @UseGuards(AuthGuard('jwt'))
+  async downloadReceipt(@Param('reference') reference: string, @Req() req: any, @Res() res: Response) {
+    const pdfBuffer = await this.paymentsService.getReceiptPdf(reference, req.user.id);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="trac-receipt-${reference}.pdf"`,
+      'Content-Length': pdfBuffer.length,
+    });
+    res.end(pdfBuffer);
+  }
+
+  // ─── GET /payments/verify-receipt/:reference — public QR verification page ─
+  @Get('verify-receipt/:reference')
+  async verifyReceiptPublic(@Param('reference') reference: string, @Res() res: Response) {
+    const html = await this.paymentsService.getPublicReceiptHtml(reference);
+    res.set('Content-Type', 'text/html; charset=utf-8').send(html);
   }
 
   @Post('cancel/:reference')
