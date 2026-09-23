@@ -49,6 +49,13 @@ export class PaymentsController {
     return this.paymentsService.verifyPayment(reference, req.user.id);
   }
 
+  // ─── GET /payments/receipt-data/:reference — structured JSON for the app's own receipt screen ──
+  @Get('receipt-data/:reference')
+  @UseGuards(AuthGuard('jwt'))
+  async getReceiptData(@Param('reference') reference: string, @Req() req: any) {
+    return this.paymentsService.getReceiptData(reference, req.user.id);
+  }
+
   // ─── GET /payments/receipt/:reference — branded PDF receipt with QR code ──
   @Get('receipt/:reference')
   @UseGuards(AuthGuard('jwt'))

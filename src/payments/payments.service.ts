@@ -1189,6 +1189,22 @@ export class PaymentsService {
     return (this.configService.get<string>('PUBLIC_API_URL') || 'https://trac-backend-399c.onrender.com').replace(/\/$/, '');
   }
 
+  // ─── Payment receipt (structured JSON for the app's own native receipt screen) ──
+  async getReceiptData(reference: string, userId: string) {
+    const payment = await this.paymentRepo.findOne({ where: { reference } });
+    if (!payment || payment.customerId !== userId) throw new NotFoundException('Receipt not found');
+    const job = payment.jobId ? await this.jobRepo.findOne({ where: { id: payment.jobId } }) : null;
+    return {
+      reference: payment.reference,
+      amount: Number(payment.amount),
+      status: payment.status,
+      paidAt: payment.paidAt || payment.createdAt,
+      route: job ? `${job.pickupState || ''} → ${job.deliveryState || ''}` : null,
+      item: job?.cargoDescription || null,
+      verifyUrl: `${this.publicApiUrl}/api/payments/verify-receipt/${encodeURIComponent(reference)}`,
+    };
+  }
+
   // ─── Payment receipt (PDF, with QR verification code) ─────────────────────
   async getReceiptPdf(reference: string, userId: string): Promise<Buffer> {
     const payment = await this.paymentRepo.findOne({ where: { reference } });
