@@ -1232,10 +1232,15 @@ export class PaymentsService {
       doc.fontSize(26).font('Helvetica-Bold').fillColor('#fff').text('TRAC', margin, 30);
       doc.fontSize(9).font('Helvetica').fillColor(mint).text('MARKETPLACE', margin, 60);
       doc.fontSize(8).fillColor('rgba(255,255,255,0.5)').text("Nigeria's Modern Logistics Platform", margin, 75);
+      // Some reference formats (wallet top-ups especially) run 50-70+
+      // characters -- too long for this corner without wrapping into the
+      // date line below it. Show a short tag here; the full reference has
+      // its own full-width row further down in PAYMENT DETAILS.
+      const shortRef = reference.length > 24 ? `${reference.slice(0, 20)}…` : reference;
       doc.fontSize(20).font('Helvetica-Bold').fillColor('#fff').text('RECEIPT', pageW - 200, 32, { width: 150, align: 'right' });
-      doc.fontSize(11).font('Helvetica').fillColor(mint).text(`#${reference}`, pageW - 200, 58, { width: 150, align: 'right' });
+      doc.fontSize(10).font('Helvetica').fillColor(mint).text(`#${shortRef}`, pageW - 200, 58, { width: 150, align: 'right' });
       const now = new Date();
-      doc.fontSize(8).fillColor('rgba(255,255,255,0.5)').text(`Issued: ${now.toLocaleDateString('en-NG', { day: 'numeric', month: 'long', year: 'numeric' })}`, pageW - 200, 78, { width: 150, align: 'right' });
+      doc.fontSize(8).fillColor('rgba(255,255,255,0.5)').text(`Issued: ${now.toLocaleDateString('en-NG', { day: 'numeric', month: 'long', year: 'numeric' })}`, pageW - 200, 76, { width: 150, align: 'right' });
 
       const statusLabel = payment.status === PaymentStatus.SUCCESS ? 'PAID' : payment.status.toUpperCase();
       doc.roundedRect(margin, 125, 90, 22, 5).fill('#22C55E');
@@ -1254,11 +1259,18 @@ export class PaymentsService {
         return yPos + 32;
       };
       const row = (label: string, value: string, yPos: number, highlight = false) => {
-        if (highlight) doc.rect(margin, yPos, contentW, 20).fill('#F0FDF4');
+        // Some values (long wallet references especially) wrap to more than
+        // one line -- measure the actual rendered height instead of
+        // assuming a fixed 20px, so the divider and next row never overlap.
+        const text = value || '—';
+        const valueWidth = contentW - 160;
+        const textHeight = doc.fontSize(8).font('Helvetica-Bold').heightOfString(text, { width: valueWidth });
+        const rowHeight = Math.max(20, textHeight + 8);
+        if (highlight) doc.rect(margin, yPos, contentW, rowHeight).fill('#F0FDF4');
         doc.fontSize(8).font('Helvetica').fillColor(gray).text(label, margin + 10, yPos + 4);
-        doc.fontSize(8).font('Helvetica-Bold').fillColor(dark).text(value || '—', margin + 150, yPos + 4, { width: contentW - 160 });
-        doc.moveTo(margin, yPos + 20).lineTo(margin + contentW, yPos + 20).strokeColor('#F1F5F9').lineWidth(0.5).stroke();
-        return yPos + 20;
+        doc.fontSize(8).font('Helvetica-Bold').fillColor(dark).text(text, margin + 150, yPos + 4, { width: valueWidth });
+        doc.moveTo(margin, yPos + rowHeight).lineTo(margin + contentW, yPos + rowHeight).strokeColor('#F1F5F9').lineWidth(0.5).stroke();
+        return yPos + rowHeight;
       };
 
       y = sectionHeader('PAYMENT DETAILS', y);
