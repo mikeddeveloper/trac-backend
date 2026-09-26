@@ -879,4 +879,71 @@ export class JobsService {
     };
     return messages[status] || `Job status updated to ${status}`;
   }
+
+  // ─── Public tracking page (what a shared tracking link resolves to) ───────
+  // No phone numbers or customer identity -- the recipient often isn't a
+  // Trac user at all, so this only shows what someone waiting for a
+  // package actually needs: status, route, and who's bringing it.
+  async getPublicTrackingHtml(jobId: string): Promise<string> {
+    const escape = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>)[c]);
+    const shell = (body: string) => `<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Trac Logistics — Track Delivery</title><style>
+      body{margin:0;background:#F6FAFC;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;}
+      .card{max-width:440px;width:100%;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 20px 50px rgba(30,58,95,0.12);}
+      .head{background:#1E3A5F;padding:28px 28px 22px;color:#fff;}
+      .brand{font-weight:800;font-size:22px;letter-spacing:.5px;}
+      .sub{color:#6EC89A;font-size:11px;letter-spacing:1.5px;margin-top:4px;}
+      .body{padding:24px 28px 28px;}
+      .badge{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:999px;font-size:12px;font-weight:700;margin-bottom:14px;}
+      .live{background:#DCFCE7;color:#15803D;}
+      .done{background:#DBEAFE;color:#1D4ED8;}
+      .pending{background:#FEF3C7;color:#92400E;}
+      .stage{font-size:19px;font-weight:800;color:#0F172A;margin-bottom:4px;}
+      .desc{font-size:13px;color:#64748B;margin-bottom:20px;}
+      .row{display:flex;gap:10px;padding:12px 0;border-bottom:1px solid #EEF2F1;font-size:13px;}
+      .row:last-child{border-bottom:none;}
+      .dot{width:8px;height:8px;border-radius:50%;background:#CBD5E1;margin-top:5px;flex-shrink:0;}
+      .dot.on{background:#6EC89A;}
+      .label{color:#94A3B8;font-size:10px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:2px;}
+      .value{color:#0F172A;font-weight:600;}
+      .transporter{display:flex;align-items:center;gap:10px;margin-top:18px;padding:14px;background:#F8FAFC;border-radius:14px;}
+      .avatar{width:38px;height:38px;border-radius:50%;background:#1E3A5F;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;}
+      .foot{text-align:center;padding:16px;font-size:11px;color:#94A3B8;}
+      </style></head><body><div class="card">${body}<div class="foot">Trac Marketplace · tracmarketplace.com</div></div></body></html>`;
+
+    const job = await this.jobRepo.findOne({ where: { id: jobId } });
+    if (!job) {
+      return shell(`<div class="head"><div class="brand">TRAC</div><div class="sub">TRACK DELIVERY</div></div><div class="body"><span class="badge pending">NOT FOUND</span><p style="color:#64748B;font-size:13px;">This tracking link is invalid or has expired.</p></div>`);
+    }
+
+    const stageFor: Partial<Record<JobStatus, { label: string; desc: string; tone: string }>> = {
+      [JobStatus.BIDDING]: { label: 'Finding a transporter', desc: 'This delivery is waiting to be matched with a transporter.', tone: 'pending' },
+      [JobStatus.BID_SELECTED]: { label: 'Transporter selected', desc: 'A transporter has been chosen. Pickup starts once payment is confirmed.', tone: 'pending' },
+      [JobStatus.PAYMENT_PENDING]: { label: 'Awaiting payment', desc: 'Waiting for the sender to complete payment.', tone: 'pending' },
+      [JobStatus.ACCEPTED]: { label: 'Ready for pickup', desc: 'The transporter is on their way to collect the package.', tone: 'pending' },
+      [JobStatus.IN_TRANSIT]: { label: 'On the way', desc: 'Your package has been picked up and is in transit.', tone: 'live' },
+      [JobStatus.DELIVERED]: { label: 'Delivered', desc: 'This package has arrived.', tone: 'done' },
+      [JobStatus.CANCELLED]: { label: 'Cancelled', desc: 'This delivery was cancelled.', tone: 'pending' },
+    };
+    const stage = stageFor[job.status] || { label: String(job.status), desc: '', tone: 'pending' };
+    const steps = [
+      { key: 'ready', label: 'Ready for pickup', on: [JobStatus.ACCEPTED, JobStatus.IN_TRANSIT, JobStatus.DELIVERED].includes(job.status) },
+      { key: 'transit', label: 'In transit', on: [JobStatus.IN_TRANSIT, JobStatus.DELIVERED].includes(job.status) },
+      { key: 'delivered', label: 'Delivered', on: job.status === JobStatus.DELIVERED },
+    ];
+    const transporterName = job.transporter?.fullName?.trim() || '';
+    const transporterInitial = transporterName ? transporterName[0].toUpperCase() : 'T';
+
+    return shell(`
+      <div class="head"><div class="brand">TRAC</div><div class="sub">TRACK DELIVERY</div></div>
+      <div class="body">
+        <span class="badge ${stage.tone}">${escape(stage.label.toUpperCase())}</span>
+        <div class="stage">${escape(stage.label)}</div>
+        <div class="desc">${escape(stage.desc)}</div>
+        ${steps.map(s => `<div class="row"><div class="dot ${s.on ? 'on' : ''}"></div><div class="value">${escape(s.label)}</div></div>`).join('')}
+        <div class="row"><div style="flex:1"><div class="label">Pickup</div><div class="value">${escape(job.pickupAddress || job.pickupState || '')}</div></div></div>
+        <div class="row"><div style="flex:1"><div class="label">Drop-off</div><div class="value">${escape(job.deliveryAddress || job.deliveryState || '')}</div></div></div>
+        ${job.cargoDescription ? `<div class="row"><div style="flex:1"><div class="label">Item</div><div class="value">${escape(job.cargoDescription)}</div></div></div>` : ''}
+        ${transporterName ? `<div class="transporter"><div class="avatar">${escape(transporterInitial)}</div><div><div class="label">Transporter</div><div class="value">${escape(transporterName)}${job.transporter?.vehicleType ? ` · ${escape(job.transporter.vehicleType)}` : ''}</div></div></div>` : ''}
+      </div>`);
+  }
 }

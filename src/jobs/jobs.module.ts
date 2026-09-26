@@ -5,6 +5,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JobsService } from './jobs.service';
 import { JobsController } from './jobs.controller';
+import { JobsPublicController } from './jobs-public.controller';
 import { Job } from './entities/job.entity';
 import { User } from '../users/entities/user.entity';
 import { EventsModule } from '../events/events.module';
@@ -19,7 +20,7 @@ import { Bid } from '../bids/entities/bid.entity';
     EventsModule, PushModule, EmailModule,
     forwardRef(() => PaymentsModule),
   ],
-  controllers: [JobsController],
+  controllers: [JobsController, JobsPublicController],
   providers: [JobsService],
   exports: [JobsService],
 })
