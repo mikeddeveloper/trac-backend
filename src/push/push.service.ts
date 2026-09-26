@@ -165,6 +165,12 @@ export class PushService implements OnModuleInit {
   }
 
   templates = {
+    newJobPosted: (jobRoute: string, vehicleType: string) => ({
+      title: '📦 New delivery job posted',
+      body: `A new ${vehicleType} delivery is available: ${jobRoute}`,
+      url: '/dashboard',
+      tag: 'new-job-posted',
+    }),
     newBid: (jobRoute: string, amount: string) => ({
       title: '🏷️ New Bid Received',
       body: `A transporter bid ₦${amount} on your ${jobRoute} delivery`,

@@ -138,6 +138,7 @@ export class JobsService {
   }
 
   private async notifyTransportersAboutNewJob(job: Job): Promise<void> {
+    const route = `${job.pickupState} → ${job.deliveryState}`;
     try {
       const query = this.userRepo.createQueryBuilder('user')
         .where('user.role = :role', { role: 'transporter' })
@@ -152,6 +153,10 @@ export class JobsService {
           job.id,
         );
         if (result.success) delivered++;
+        this.pushService.sendToUser(transporter.id, {
+          ...this.pushService.templates.newJobPosted(route, job.vehicleType),
+          data: { jobId: job.id },
+        }).catch(() => {});
       }
       this.logger.log(`New-job email delivered to ${delivered}/${transporters.length} transporters for job ${job.id}`);
     } catch (error: any) {
