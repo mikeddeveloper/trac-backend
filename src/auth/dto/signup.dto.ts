@@ -43,4 +43,8 @@ export class SignupDto {
   @IsOptional()
   @IsString()
   rcNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  referralCode?: string;
 }

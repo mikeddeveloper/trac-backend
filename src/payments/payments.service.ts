@@ -130,6 +130,95 @@ export class PaymentsService {
     return credited;
   }
 
+  // ─── Referrals ──────────────────────────────────────────────────────────
+  // The code is derived from the user's own id (first 8 hex chars, no
+  // hyphens) rather than a stored column -- avoids a migration entirely,
+  // and collisions are practically negligible at this user-base size.
+  private async ensureReferralTable(): Promise<void> {
+    await this.paymentRepo.query(`
+      CREATE TABLE IF NOT EXISTS referrals (
+        "referrerId" uuid NOT NULL,
+        "refereeId" uuid NOT NULL PRIMARY KEY,
+        "status" varchar(15) NOT NULL DEFAULT 'pending',
+        "createdAt" timestamptz NOT NULL DEFAULT now(),
+        "rewardedAt" timestamptz NULL
+      );
+      CREATE INDEX IF NOT EXISTS "IDX_referrals_referrer" ON referrals ("referrerId");
+    `);
+  }
+
+  getReferralCode(userId: string): string {
+    return userId.replace(/-/g, '').slice(0, 8).toUpperCase();
+  }
+
+  // Called at signup -- links a new account to whoever's code they entered.
+  // The reward itself waits until the referee's first real delivery
+  // payment succeeds (see rewardReferralIfEligible), so a fake signup with
+  // no activity never pays out.
+  async recordReferral(refereeId: string, referralCode: string): Promise<void> {
+    const code = String(referralCode || '').trim().toUpperCase();
+    if (!code) return;
+    await this.ensureReferralTable();
+    const referrer = await this.userRepo
+      .createQueryBuilder('user')
+      .where(`UPPER(REPLACE(CAST(user.id AS TEXT), '-', '')) LIKE :prefix`, { prefix: `${code}%` })
+      .getOne();
+    if (!referrer || referrer.id === refereeId) return;
+    await this.paymentRepo.query(
+      `INSERT INTO referrals ("referrerId","refereeId") VALUES ($1,$2) ON CONFLICT ("refereeId") DO NOTHING`,
+      [referrer.id, refereeId],
+    );
+  }
+
+  async rewardReferralIfEligible(refereeId: string): Promise<void> {
+    await this.ensureReferralTable();
+    const rows = await this.paymentRepo.query(`SELECT "referrerId" FROM referrals WHERE "refereeId" = $1 AND status = 'pending'`, [refereeId]);
+    const referrerId = rows[0]?.referrerId;
+    if (!referrerId) return;
+    await this.ensureWalletTables();
+    const bonus = 500;
+    await this.paymentRepo.manager.transaction(async manager => {
+      // Atomic compare-and-swap on status guards against a concurrent
+      // second trigger (webhook + manual verify both firing) double-paying.
+      const updated = await manager.query(
+        `UPDATE referrals SET status = 'rewarded', "rewardedAt" = now() WHERE "refereeId" = $1 AND status = 'pending' RETURNING "referrerId"`,
+        [refereeId],
+      );
+      if (!updated.length) return;
+      const targets = [
+        { userId: referrerId, reference: `REFERRAL-BONUS-REFERRER-${refereeId}` },
+        { userId: refereeId, reference: `REFERRAL-BONUS-REFEREE-${refereeId}` },
+      ];
+      for (const t of targets) {
+        await manager.query(`
+          WITH credited AS (
+            INSERT INTO wallet_entries ("reference","userId","amount","direction","kind","status","metadata","completedAt")
+            VALUES ($1,$2,$3,'credit','referral_bonus','success',$4::jsonb, now())
+            ON CONFLICT ("reference") DO NOTHING
+            RETURNING "userId","amount"
+          )
+          INSERT INTO wallet_accounts ("userId","balance")
+          SELECT "userId","amount" FROM credited
+          ON CONFLICT ("userId") DO UPDATE SET "balance" = wallet_accounts."balance" + EXCLUDED."balance", "updatedAt" = now()
+        `, [t.reference, t.userId, bonus, JSON.stringify({ usage: 'delivery_only', cashWithdrawable: false })]);
+        this.eventsGateway.notifyUser(t.userId, 'wallet:credited', { amount: bonus, kind: 'referral_bonus' });
+        this.pushService.sendToUser(t.userId, {
+          title: '🎁 Referral bonus!',
+          body: `NGN ${bonus} has been added to your Trac wallet.`,
+          url: '/dashboard/payments', tag: 'referral-bonus',
+        }).catch(() => {});
+      }
+    });
+  }
+
+  async getReferralStats(userId: string) {
+    await this.ensureReferralTable();
+    const rows = await this.paymentRepo.query(`SELECT status, COUNT(*)::int AS count FROM referrals WHERE "referrerId" = $1 GROUP BY status`, [userId]);
+    const rewarded = rows.find((r: any) => r.status === 'rewarded')?.count || 0;
+    const pending = rows.find((r: any) => r.status === 'pending')?.count || 0;
+    return { code: this.getReferralCode(userId), rewardedCount: rewarded, pendingCount: pending, totalEarned: rewarded * 500 };
+  }
+
   async initializeWalletTopup(email: string, userId: string, requestedAmount: number) {
     const amount = Number(requestedAmount);
     if (!Number.isFinite(amount) || amount < 100 || amount > 5_000_000 || Math.round(amount * 100) !== amount * 100) {
@@ -271,6 +360,12 @@ export class PaymentsService {
       url: '/dashboard/tracking', tag: 'payment', icon: '/icons/icon-192x192.png',
       data: { jobId: job.id },
     }).catch(() => {});
+    // A referred customer's first real delivery payment is what triggers
+    // the referral payout -- not signup itself, so an inactive fake
+    // account never earns anything.
+    this.rewardReferralIfEligible(job.customerId).catch((error: Error) => {
+      this.logger.error(`Referral reward check failed for ${job.customerId}: ${error.message}`);
+    });
   }
 
   async cancelPendingPayment(reference: string, customerId: string): Promise<{ status: string; jobId: string }> {

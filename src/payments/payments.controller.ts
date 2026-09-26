@@ -113,6 +113,12 @@ export class PaymentsController {
     return this.paymentsService.getWalletBalance(req.user.id);
   }
 
+  @Get('referral')
+  @UseGuards(AuthGuard('jwt'))
+  async getReferralStats(@Req() req: any) {
+    return this.paymentsService.getReferralStats(req.user.id);
+  }
+
   // ─── GET /payments/earnings ──────────────────────────────────────────────────
   // Day 19: Transporter earnings
   @Get('earnings')

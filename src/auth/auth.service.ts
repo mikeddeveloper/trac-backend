@@ -70,6 +70,12 @@ export class AuthService {
       this.logger.error(`Launch bonus credit failed for ${user.email}: ${error.message}`);
     });
 
+    if (dto.referralCode) {
+      await this.paymentsService?.recordReferral(user.id, dto.referralCode).catch((error: Error) => {
+        this.logger.error(`Referral link failed for ${user.email}: ${error.message}`);
+      });
+    }
+
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
 
