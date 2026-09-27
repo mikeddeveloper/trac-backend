@@ -73,6 +73,17 @@ export class ChatService {
     throw new ForbiddenException('You are not a party to this job');
   }
 
+  // For admin moderation/dispute review only — bypasses the party check since
+  // an admin isn't the customer or transporter on the job.
+  async listMessagesForAdmin(jobId: string): Promise<ChatMessage[]> {
+    await this.ensureTable();
+    await this.jobsService.findById(jobId);
+    return this.jobRepo.query(
+      'SELECT * FROM job_messages WHERE "jobId" = $1 ORDER BY "createdAt" ASC LIMIT 200',
+      [jobId],
+    );
+  }
+
   async listMessages(jobId: string, userId: string): Promise<ChatMessage[]> {
     await this.ensureTable();
     await this.partyRole(jobId, userId);

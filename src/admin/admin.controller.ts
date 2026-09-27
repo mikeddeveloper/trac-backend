@@ -6,6 +6,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { AdminService } from './admin.service';
 import { VerificationService } from '../verification/verification.service';
 import { AdminGuard } from './admin.guard';
+import { ChatService } from '../chat/chat.service';
 
 @Controller('admin')
 @UseGuards(AuthGuard('jwt'), AdminGuard)
@@ -13,6 +14,7 @@ export class AdminController {
   constructor(
     private readonly adminService: AdminService,
     private readonly verificationService: VerificationService,
+    private readonly chatService: ChatService,
   ) {}
 
   // ─── GET /admin/overview ─────────────────────────────────────────────────────
@@ -159,6 +161,14 @@ export class AdminController {
   async cancelJob(@Request() req: any, @Param('id') id: string) {
     if (req.user.role !== 'admin') throw new ForbiddenException();
     return this.adminService.cancelJob(id);
+  }
+
+  // ─── GET /admin/jobs/:id/messages — read-only chat view for moderation ───────
+  @Get('jobs/:id/messages')
+  @UseGuards(AuthGuard('jwt'))
+  async getJobMessages(@Request() req: any, @Param('id') id: string) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.chatService.listMessagesForAdmin(id);
   }
 
   // ─── GET /admin/analytics/jobs ────────────────────────────────────────────────
