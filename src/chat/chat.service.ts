@@ -21,6 +21,7 @@ export type ChatMessage = {
   senderRole: 'customer' | 'transporter';
   body: string;
   createdAt: string;
+  readAt: string | null;
 };
 
 const CHAT_ALLOWED_STATUSES = new Set([JobStatus.ACCEPTED, JobStatus.IN_TRANSIT]);
@@ -64,6 +65,7 @@ export class ChatService {
       )
     `);
     await this.jobRepo.query('CREATE INDEX IF NOT EXISTS "IDX_job_messages_job_created" ON job_messages ("jobId", "createdAt")');
+    await this.jobRepo.query('ALTER TABLE job_messages ADD COLUMN IF NOT EXISTS "readAt" timestamptz NULL');
   }
 
   private async partyRole(jobId: string, userId: string): Promise<{ job: Job; role: 'customer' | 'transporter' }> {
@@ -125,5 +127,19 @@ export class ChatService {
     }
 
     return message;
+  }
+
+  // Marks every unread message FROM the other party as read, and tells that
+  // sender in real time so their own sent bubbles can show "seen".
+  async markRead(jobId: string, userId: string): Promise<void> {
+    await this.ensureTable();
+    await this.partyRole(jobId, userId);
+    const rows = await this.jobRepo.query(
+      `UPDATE job_messages SET "readAt" = now() WHERE "jobId" = $1 AND "senderId" != $2 AND "readAt" IS NULL RETURNING "senderId"`,
+      [jobId, userId],
+    );
+    if (!rows.length) return;
+    const senderId = rows[0].senderId;
+    this.eventsGateway.notifyUser(senderId, `chat:read:${jobId}`, { jobId });
   }
 }
