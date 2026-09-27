@@ -258,6 +258,20 @@ export class EventsGateway
     this.logger.log(`❌ Call cancelled for job ${data.jobId}`);
   }
 
+  // ─── Chat typing indicator ────────────────────────────────────────────────
+  // Ephemeral, no persistence — just a relay to whichever party isn't typing.
+
+  @SubscribeMessage('chat:typing')
+  async handleChatTyping(
+    @MessageBody() data: { jobId: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    const job = await this.getAuthorizedCallJob(data.jobId, client.data.userId);
+    if (!job) return;
+    const recipientId = job.customerId === client.data.userId ? job.transporterId : job.customerId;
+    if (recipientId) this.emitToConnectedUser(recipientId, `chat:typing:${data.jobId}`, { jobId: data.jobId });
+  }
+
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
   getJobLocation(jobId: string) {
