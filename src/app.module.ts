@@ -22,6 +22,7 @@ import { WaybillModule } from './waybill/waybill.module';
 import { EmailModule } from './email/email.module';
 import { VerificationModule } from './verification/verification.module';
 import { CallingModule } from './calling/calling.module';
+import { ChatModule } from './chat/chat.module';
 import { AddressesModule } from './addresses/addresses.module';
 import { SupportModule } from './support/support.module';
 import { User } from './users/entities/user.entity';
@@ -65,6 +66,7 @@ import { SupportTicket } from './support/entities/support-ticket.entity';
     PushModule,
     WaybillModule,
     CallingModule,
+    ChatModule,
     EmailModule,
     VerificationModule,
     AddressesModule,
