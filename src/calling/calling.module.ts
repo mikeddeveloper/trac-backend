@@ -7,9 +7,10 @@ import { CallingService } from './calling.service';
 import { CallingController } from './calling.controller';
 import { EventsModule } from '../events/events.module';
 import { JobsModule } from '../jobs/jobs.module';
+import { PushModule } from '../push/push.module';
 
 @Module({
-  imports: [ConfigModule, EventsModule, JobsModule],
+  imports: [ConfigModule, EventsModule, JobsModule, PushModule],
   controllers: [CallingController],
   providers: [CallingService],
   exports: [CallingService],

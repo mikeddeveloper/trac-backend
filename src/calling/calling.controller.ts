@@ -5,6 +5,7 @@ import { Controller, Post, Param, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CallingService } from './calling.service';
 import { EventsGateway } from '../events/events.gateway';
+import { PushService } from '../push/push.service';
 
 @Controller('calling')
 @UseGuards(AuthGuard('jwt'))
@@ -12,6 +13,7 @@ export class CallingController {
   constructor(
     private readonly callingService: CallingService,
     private readonly eventsGateway: EventsGateway,
+    private readonly pushService: PushService,
   ) {}
 
   // ─── POST /calling/initiate/:jobId ───────────────────────────────────────────
@@ -21,13 +23,22 @@ export class CallingController {
     const session = await this.callingService.initiateCall(jobId, req.user.id);
     const callerName = req.user.fullName || req.user.firstName || 'Customer';
 
-    // Notify transporter via socket
+    // Notify transporter via socket (reaches them only if already connected
+    // on this job's screen) and via push (reaches them even if the app is
+    // backgrounded, killed, or just on a different screen -- a push arrives
+    // independent of any live socket connection).
     this.eventsGateway.emitToConnectedUser(session.transporterId, `call:incoming:${jobId}`, {
       jobId,
       channelName: session.channelName,
       callerName,
       callerId: req.user.id,
     });
+    this.pushService.sendToUser(session.transporterId, {
+      title: 'Incoming call',
+      body: `${callerName} is calling you`,
+      tag: 'incoming-call',
+      data: { jobId, channelName: session.channelName, callerName, callerId: req.user.id },
+    }).catch(() => {});
 
     const { transporterId: _transporterId, ...publicSession } = session;
     return { ...publicSession, callerName };
