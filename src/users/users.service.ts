@@ -63,7 +63,8 @@ export class UsersService {
   }
 
   async deactivateAccount(userId: string): Promise<void> {
-    await this.usersRepo.update(userId, { isActive: false } as any);
+    await this.usersRepo.update(userId, { isActive: false });
+    await this.revokeSessions(userId);
   }
 
   async revokeSessions(id: string): Promise<void> {

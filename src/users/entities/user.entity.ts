@@ -113,6 +113,9 @@ export class User {
   @Column({ default: false })
   isSuspended!: boolean;
 
+  @Column({ default: true })
+  isActive!: boolean;
+
   // ─── KYC ──────────────────────────────────────────────────────────────────
   @Column({ default: false })
   ninVerified!: boolean;

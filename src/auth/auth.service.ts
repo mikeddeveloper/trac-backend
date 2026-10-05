@@ -141,6 +141,8 @@ export class AuthService {
 
     if (user.isSuspended)
       throw new UnauthorizedException('Account is suspended');
+    if (user.isActive === false)
+      throw new UnauthorizedException('This account has been deleted');
     if (user.role === UserRole.ENTERPRISE)
       throw new UnauthorizedException('Enterprise access is not available yet');
     if (!user.password) {
@@ -215,7 +217,7 @@ export class AuthService {
     }
 
     const user = await this.usersService.findById(payload.sub);
-    if (user.isSuspended || user.role === UserRole.ENTERPRISE || !user.refreshToken) {
+    if (user.isSuspended || user.isActive === false || user.role === UserRole.ENTERPRISE || !user.refreshToken) {
       throw new UnauthorizedException('Session has been revoked');
     }
     if (Number(payload.sv ?? -1) !== Number(user.sessionVersion || 0)) {
@@ -257,6 +259,8 @@ export class AuthService {
     const user = await this.usersService.findById(entry.userId);
     if (user.isSuspended)
       throw new UnauthorizedException('Account is suspended');
+    if (user.isActive === false)
+      throw new UnauthorizedException('This account has been deleted');
     if (user.role === UserRole.ENTERPRISE)
       throw new UnauthorizedException('Enterprise access is not available yet');
     const tokens = await this.generateTokens(user.id, user.email, user.role);
@@ -377,6 +381,7 @@ export class AuthService {
     let created = false;
     if (user) {
       if (user.isSuspended) throw new UnauthorizedException('Account is suspended');
+      if (user.isActive === false) throw new UnauthorizedException('This account has been deleted');
       if (user.role === UserRole.ENTERPRISE) {
         throw new UnauthorizedException('Enterprise access is not available yet');
       }

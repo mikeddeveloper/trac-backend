@@ -377,7 +377,8 @@ export class AdminService {
   // ─── Deactivate user ─────────────────────────────────────────────────────────
 
   async deleteUser(userId: string) {
-    await this.userRepo.update(userId, { isActive: false } as any);
+    await this.userRepo.update(userId, { isActive: false });
+    await this.userRepo.increment({ id: userId }, 'sessionVersion', 1);
     return { message: 'User deactivated successfully' };
   }
 

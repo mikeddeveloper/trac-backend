@@ -26,6 +26,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     const path = (req.originalUrl || req.path).split('?')[0];
     const suspensionRecoveryPath = path.startsWith('/api/verification/') || path.endsWith('/api/auth/me') || path.endsWith('/api/auth/logout');
     if (user.isSuspended && !suspensionRecoveryPath) throw new UnauthorizedException('Account suspended');
+    if (user.isActive === false) throw new UnauthorizedException('Account deleted');
     if (Number(payload.sv ?? -1) !== Number(user.sessionVersion || 0)) {
       throw new UnauthorizedException('Session has been revoked');
     }
