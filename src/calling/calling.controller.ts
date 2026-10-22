@@ -1,7 +1,7 @@
 // trac-backend/src/calling/calling.controller.ts
 // Day 26: Agora calling controller
 
-import { Controller, Post, Param, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Param, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CallingService } from './calling.service';
 import { EventsGateway } from '../events/events.gateway';
@@ -49,6 +49,7 @@ export class CallingController {
   @Post('join/:jobId')
   async joinCall(@Param('jobId') jobId: string, @Req() req: any) {
     const session = await this.callingService.createCallSession(jobId, req.user.id, 'receiver');
+    this.callingService.markAccepted(jobId);
     return session;
   }
 
@@ -58,5 +59,17 @@ export class CallingController {
   async getToken(@Param('jobId') jobId: string, @Req() req: any) {
     const session = await this.callingService.createCallSession(jobId, req.user.id, 'publisher');
     return session;
+  }
+
+  // ─── GET /calling/status/:jobId ──────────────────────────────────────────────
+  // Lets the caller actively re-check "did the other party already accept?"
+  // the moment its socket reconnects, instead of only relying on the
+  // call:accepted socket event -- which on a flaky connection can be queued
+  // server-side and never redelivered if the caller doesn't reconnect before
+  // giving up. REST-backed (markAccepted fires on the transporter's actual
+  // join call above), so it doesn't depend on either party's socket state.
+  @Get('status/:jobId')
+  async getStatus(@Param('jobId') jobId: string) {
+    return { accepted: this.callingService.wasRecentlyAccepted(jobId) };
   }
 }

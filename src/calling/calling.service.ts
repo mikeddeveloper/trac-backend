@@ -7,9 +7,25 @@ import { RtcTokenBuilder, RtcRole } from 'agora-token';
 import { JobsService } from '../jobs/jobs.service';
 import { JobStatus } from '../jobs/entities/job.entity';
 
+// How long a "the transporter joined" marker stays valid for the customer's
+// reconnect-resync check (see acceptedAt below). Comfortably longer than any
+// realistic ringing duration, short enough that a stale marker from a much
+// earlier call on the same job can't bleed into a later one.
+const ACCEPTED_MARKER_TTL_MS = 2 * 60 * 1000;
+
 @Injectable()
 export class CallingService {
   private readonly logger = new Logger(CallingService.name);
+
+  // jobId -> when the transporter's REST /calling/join call last succeeded.
+  // Exists because the live call:accepted socket event is the only other way
+  // the caller learns the call was picked up, and on flaky mobile
+  // connections that event can be queued-and-never-redelivered if the
+  // caller's socket doesn't reconnect in time. This REST-backed marker lets
+  // the caller's client actively re-check "was this accepted?" the moment
+  // its socket reconnects, instead of only passively waiting on a socket
+  // event that may never arrive.
+  private acceptedAt = new Map<string, number>();
 
   constructor(
     private config: ConfigService,
@@ -18,6 +34,20 @@ export class CallingService {
 
   private get appId() { return this.config.get<string>('AGORA_APP_ID'); }
   private get appCert() { return this.config.get<string>('AGORA_APP_CERTIFICATE'); }
+
+  markAccepted(jobId: string) {
+    this.acceptedAt.set(jobId, Date.now());
+  }
+
+  wasRecentlyAccepted(jobId: string): boolean {
+    const at = this.acceptedAt.get(jobId);
+    if (!at) return false;
+    if (Date.now() - at > ACCEPTED_MARKER_TTL_MS) {
+      this.acceptedAt.delete(jobId);
+      return false;
+    }
+    return true;
+  }
 
   // ─── Generate channel name for a job ────────────────────────────────────────
   getChannelName(jobId: string): string {
