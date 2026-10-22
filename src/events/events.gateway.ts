@@ -227,10 +227,14 @@ export class EventsGateway
     @MessageBody() data: { jobId: string },
     @ConnectedSocket() client: Socket,
   ) {
+    this.logger.log(`📞 Received call:accepted from user ${client.data.userId} for job ${data.jobId}`);
     const job = await this.getAuthorizedCallJob(data.jobId, client.data.userId, 'transporter');
-    if (!job) return { ok: false, error: 'Not authorized for this call' };
+    if (!job) {
+      this.logger.warn(`📞 call:accepted rejected: user ${client.data.userId} not authorized (as transporter) for job ${data.jobId}`);
+      return { ok: false, error: 'Not authorized for this call' };
+    }
     this.notifyUser(job.customerId, `call:accepted:${data.jobId}`, data);
-    this.logger.log(`📞 Call accepted for job ${data.jobId}`);
+    this.logger.log(`📞 Call accepted for job ${data.jobId}, relayed to customer ${job.customerId}`);
   }
 
   // ─── Call declined ────────────────────────────────────────────────────────
@@ -241,7 +245,10 @@ export class EventsGateway
     @ConnectedSocket() client: Socket,
   ) {
     const job = await this.getAuthorizedCallJob(data.jobId, client.data.userId, 'transporter');
-    if (!job) return { ok: false, error: 'Not authorized for this call' };
+    if (!job) {
+      this.logger.warn(`📵 call:declined rejected: user ${client.data.userId} not authorized (as transporter) for job ${data.jobId}`);
+      return { ok: false, error: 'Not authorized for this call' };
+    }
     this.notifyUser(job.customerId, `call:declined:${data.jobId}`, data);
     this.logger.log(`📵 Call declined for job ${data.jobId}`);
   }
@@ -254,7 +261,10 @@ export class EventsGateway
     @ConnectedSocket() client: Socket,
   ) {
     const job = await this.getAuthorizedCallJob(data.jobId, client.data.userId);
-    if (!job) return { ok: false, error: 'Not authorized for this call' };
+    if (!job) {
+      this.logger.warn(`❌ call:cancelled rejected: user ${client.data.userId} not authorized for job ${data.jobId}`);
+      return { ok: false, error: 'Not authorized for this call' };
+    }
     const recipientId = job.customerId === client.data.userId ? job.transporterId : job.customerId;
     if (recipientId) this.notifyUser(recipientId, `call:cancelled:${data.jobId}`, data);
     this.logger.log(`❌ Call cancelled for job ${data.jobId}`);
