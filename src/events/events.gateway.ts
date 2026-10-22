@@ -18,6 +18,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Job, JobStatus } from '../jobs/entities/job.entity';
+import { UsersService } from '../users/users.service';
 
 const WS_ALLOWED_ORIGINS = [
   'https://trac.com.ng',
@@ -62,6 +63,7 @@ export class EventsGateway
   constructor(
     private jwtService: JwtService,
     private configService: ConfigService,
+    private usersService: UsersService,
     @InjectRepository(Job)
     private readonly jobRepo: Repository<Job>,
   ) {}
@@ -227,7 +229,7 @@ export class EventsGateway
   ) {
     const job = await this.getAuthorizedCallJob(data.jobId, client.data.userId, 'transporter');
     if (!job) return { ok: false, error: 'Not authorized for this call' };
-    this.emitToConnectedUser(job.customerId, `call:accepted:${data.jobId}`, data);
+    this.notifyUser(job.customerId, `call:accepted:${data.jobId}`, data);
     this.logger.log(`📞 Call accepted for job ${data.jobId}`);
   }
 
@@ -240,7 +242,7 @@ export class EventsGateway
   ) {
     const job = await this.getAuthorizedCallJob(data.jobId, client.data.userId, 'transporter');
     if (!job) return { ok: false, error: 'Not authorized for this call' };
-    this.emitToConnectedUser(job.customerId, `call:declined:${data.jobId}`, data);
+    this.notifyUser(job.customerId, `call:declined:${data.jobId}`, data);
     this.logger.log(`📵 Call declined for job ${data.jobId}`);
   }
 
@@ -254,7 +256,7 @@ export class EventsGateway
     const job = await this.getAuthorizedCallJob(data.jobId, client.data.userId);
     if (!job) return { ok: false, error: 'Not authorized for this call' };
     const recipientId = job.customerId === client.data.userId ? job.transporterId : job.customerId;
-    if (recipientId) this.emitToConnectedUser(recipientId, `call:cancelled:${data.jobId}`, data);
+    if (recipientId) this.notifyUser(recipientId, `call:cancelled:${data.jobId}`, data);
     this.logger.log(`❌ Call cancelled for job ${data.jobId}`);
   }
 
