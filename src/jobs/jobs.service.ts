@@ -43,6 +43,14 @@ const ROLE_PERMISSIONS: Record<string, JobStatus[]> = {
 export class JobsService {
   private readonly logger = new Logger(JobsService.name);
   private supabase: any;
+  // A single job alert isn't enough for a driver to notice before another
+  // transporter grabs it, so we keep nudging eligible transporters every
+  // ALERT_INTERVAL_MS until the job is taken, cancelled, expires, or we've
+  // nudged ALERT_MAX_REPEATS times (a safety cap, not a real "timeout" --
+  // most jobs resolve well before this).
+  private readonly activeJobAlertLoops = new Map<string, NodeJS.Timeout>();
+  private static readonly ALERT_INTERVAL_MS = 20_000;
+  private static readonly ALERT_MAX_REPEATS = 20;
 
   constructor(
     @InjectRepository(Job)
@@ -156,12 +164,55 @@ export class JobsService {
         this.pushService.sendToUser(transporter.id, {
           ...this.pushService.templates.newJobPosted(route, job.vehicleType),
           data: { jobId: job.id },
+          channelId: 'job-alerts',
         }).catch(() => {});
       }
       this.logger.log(`New-job email delivered to ${delivered}/${transporters.length} transporters for job ${job.id}`);
     } catch (error: any) {
       this.logger.error(`New-job email notification failed for job ${job.id}: ${error?.message || error}`);
     }
+    this.scheduleJobAlertRepeats(job);
+  }
+
+  // ─── Repeat job alerts until the offer is resolved ───────────────────────
+  // Resolved = job leaves BIDDING (picked, cancelled, expired) or, for a given
+  // transporter, they've placed a bid -- both count as "responded" since this
+  // marketplace has no separate accept/decline action.
+
+  private scheduleJobAlertRepeats(job: Job): void {
+    if (this.activeJobAlertLoops.has(job.id)) return;
+    const route = `${job.pickupState} → ${job.deliveryState}`;
+    let repeats = 0;
+    const timer = setInterval(async () => {
+      repeats++;
+      try {
+        const current = await this.jobRepo.findOne({ where: { id: job.id } });
+        const expired = current?.deadline ? current.deadline.getTime() < Date.now() : false;
+        if (!current || current.status !== JobStatus.BIDDING || expired || repeats >= JobsService.ALERT_MAX_REPEATS) {
+          clearInterval(timer);
+          this.activeJobAlertLoops.delete(job.id);
+          return;
+        }
+        const bids = await this.bidRepo.find({ where: { jobId: job.id } });
+        const alreadyBid = bids.map(b => b.transporterId);
+        const query = this.userRepo.createQueryBuilder('user')
+          .where('user.role = :role', { role: 'transporter' })
+          .andWhere('user.isSuspended = false');
+        if (current.invitedTransporterId) query.andWhere('user.id = :id', { id: current.invitedTransporterId });
+        else if (alreadyBid.length) query.andWhere('user.id NOT IN (:...ids)', { ids: alreadyBid });
+        const transporters = await query.getMany();
+        for (const transporter of transporters) {
+          this.pushService.sendToUser(transporter.id, {
+            ...this.pushService.templates.newJobPosted(route, job.vehicleType),
+            data: { jobId: job.id },
+            channelId: 'job-alerts',
+          }, { record: false }).catch(() => {});
+        }
+      } catch (error: any) {
+        this.logger.warn(`Job alert repeat failed for job ${job.id}: ${error?.message || error}`);
+      }
+    }, JobsService.ALERT_INTERVAL_MS);
+    this.activeJobAlertLoops.set(job.id, timer);
   }
 
   // ─── Get open jobs ────────────────────────────────────────────────────────

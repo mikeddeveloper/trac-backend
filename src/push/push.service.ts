@@ -74,9 +74,12 @@ export class PushService implements OnModuleInit {
     tag?: string;
     icon?: string;
     data?: any;
-  }): Promise<{ sent: number }> {
+    channelId?: string;
+  }, opts?: { record?: boolean }): Promise<{ sent: number }> {
     try {
-      await this.notificationRepo.save(this.notificationRepo.create({userId,title:payload.title,body:payload.body,url:payload.url,tag:payload.tag,data:payload.data||{},read:false}));
+      if (opts?.record !== false) {
+        await this.notificationRepo.save(this.notificationRepo.create({userId,title:payload.title,body:payload.body,url:payload.url,tag:payload.tag,data:payload.data||{},read:false}));
+      }
       const subs = await this.subRepo.find({ where: { userId } });
       if (!subs.length) {
         this.logger.warn(`📵 No push subscriptions found for user ${userId}`);
@@ -96,7 +99,7 @@ export class PushService implements OnModuleInit {
       for (const sub of subs) {
         try {
           if(sub.endpoint.startsWith('ExponentPushToken[')||sub.endpoint.startsWith('ExpoPushToken[')){
-            const expoResponse=await fetch('https://exp.host/--/api/v2/push/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:sub.endpoint,title:payload.title,body:payload.body,data:{url:payload.url,tag:payload.tag,...payload.data},sound:'default',channelId:'delivery-updates-v4'})});
+            const expoResponse=await fetch('https://exp.host/--/api/v2/push/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:sub.endpoint,title:payload.title,body:payload.body,data:{url:payload.url,tag:payload.tag,...payload.data},sound:'default',channelId:payload.channelId||'delivery-updates-v4'})});
             if(!expoResponse.ok)throw new Error(`Expo push failed (${expoResponse.status})`);sent++;continue;
           }
           const subscription = {
