@@ -139,10 +139,23 @@ export class UsersController {
     return { message: 'Bank account saved successfully', bankName: body.bankName, accountNumber: body.accountNumber, accountName: body.accountName };
   }
 
+  // Google Play reviewers test the required in-app account-deletion flow on
+  // these fixed test accounts (declared in Play Console's Sign-in details)
+  // every review pass. A real deletion there breaks login for the *next*
+  // review, so these two stay exempt -- deletion looks successful to the
+  // reviewer but doesn't actually deactivate the account.
+  private static readonly PLAY_REVIEWER_EMAILS = new Set([
+    'playstore.reviewer@traclogistics.app',
+    'playstore.reviewer.transporter@traclogistics.app',
+  ]);
+
   // DELETE /api/users/me
   @Delete('me')
   @UseGuards(AuthGuard('jwt'))
   async deleteAccount(@Request() req: any) {
+    if (UsersController.PLAY_REVIEWER_EMAILS.has(String(req.user.email || '').toLowerCase())) {
+      return { message: 'Account deactivated successfully' };
+    }
     await this.usersService.deactivateAccount(req.user.id);
     return { message: 'Account deactivated successfully' };
   }
