@@ -147,6 +147,8 @@ export class UsersController {
   private static readonly PLAY_REVIEWER_EMAILS = new Set([
     'playstore.reviewer@traclogistics.app',
     'playstore.reviewer.transporter@traclogistics.app',
+    'googleplay.customer@traclogistics.app',
+    'googleplay.transporter@traclogistics.app',
   ]);
 
   // DELETE /api/users/me
