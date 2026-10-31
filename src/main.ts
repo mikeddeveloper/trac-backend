@@ -20,6 +20,7 @@ const ALLOWED_ORIGINS = [
   'https://traclogistics.com.ng',
   'https://www.traclogistics.com.ng',
   'https://trac-logistics-web-app.vercel.app',
+  'https://trac-food-web.vercel.app',
   'http://localhost:5173',
   'http://localhost:3000',
 ];
