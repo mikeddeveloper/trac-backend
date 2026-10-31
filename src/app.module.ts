@@ -25,6 +25,7 @@ import { CallingModule } from './calling/calling.module';
 import { ChatModule } from './chat/chat.module';
 import { AddressesModule } from './addresses/addresses.module';
 import { SupportModule } from './support/support.module';
+import { WaitlistModule } from './waitlist/waitlist.module';
 import { User } from './users/entities/user.entity';
 import { Job } from './jobs/entities/job.entity';
 import { Bid } from './bids/entities/bid.entity';
@@ -35,6 +36,7 @@ import { PushSubscription } from './push/entities/push-subscription.entity';
 import { NotificationRecord } from './push/entities/notification-record.entity';
 import { SavedAddress } from './addresses/entities/saved-address.entity';
 import { SupportTicket } from './support/entities/support-ticket.entity';
+import { WaitlistEntry } from './waitlist/entities/waitlist-entry.entity';
 
 @Module({
   imports: [
@@ -45,7 +47,7 @@ import { SupportTicket } from './support/entities/support-ticket.entity';
       useFactory: () => ({
         type: 'postgres',
         url: process.env.DATABASE_URL,
-        entities: [User, Job, Bid, Payment, Rating, Dispute, PushSubscription, NotificationRecord, SavedAddress, SupportTicket],
+        entities: [User, Job, Bid, Payment, Rating, Dispute, PushSubscription, NotificationRecord, SavedAddress, SupportTicket, WaitlistEntry],
         synchronize: process.env.NODE_ENV !== 'production' && process.env.TYPEORM_SYNC === 'true',
         ssl: process.env.NODE_ENV === 'production'
           ? { rejectUnauthorized: false }
@@ -71,6 +73,7 @@ import { SupportTicket } from './support/entities/support-ticket.entity';
     VerificationModule,
     AddressesModule,
     SupportModule,
+    WaitlistModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
