@@ -350,7 +350,14 @@ export class JobsService implements OnModuleInit {
       throw new BadRequestException('No supported job fields were provided');
     }
     await this.jobRepo.manager.transaction(async manager => {
-      const job = await manager.findOne(Job, { where: { id: jobId }, lock: { mode: 'pessimistic_write' } });
+      // Job.transporter is an eager + nullable relation, and findOne() auto-
+      // joins eager relations -- Postgres refuses "FOR UPDATE" across a
+      // nullable outer join. A query builder (which doesn't auto-join eager
+      // relations) locks just the jobs row instead, which is all this needs.
+      const job = await manager.createQueryBuilder(Job, 'job')
+        .where('job.id = :id', { id: jobId })
+        .setLock('pessimistic_write')
+        .getOne();
       if (!job) throw new NotFoundException('Delivery not found');
       if (job.customerId !== customerId) throw new ForbiddenException('This is not your delivery');
       const editableStatuses = [JobStatus.PENDING, JobStatus.BIDDING, JobStatus.BID_SELECTED, JobStatus.PAYMENT_PENDING];
