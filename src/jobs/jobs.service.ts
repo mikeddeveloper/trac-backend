@@ -8,6 +8,7 @@ import {
   BadRequestException,
   ServiceUnavailableException,
   Logger,
+  OnModuleInit,
 } from '@nestjs/common';
 import { randomInt } from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -39,8 +40,14 @@ const ROLE_PERMISSIONS: Record<string, JobStatus[]> = {
   admin:       [JobStatus.CANCELLED],
 };
 
+// ₦120/km is the platform's reference starting price. It's a baseline for
+// the customer's opening offer, not a fixed fare -- both sides can move it
+// from there (customer by editing customerOfferAmount, transporter by
+// bidding above or below it).
+const PRICE_PER_KM = 120;
+
 @Injectable()
-export class JobsService {
+export class JobsService implements OnModuleInit {
   private readonly logger = new Logger(JobsService.name);
   private supabase: any;
   // A single job alert isn't enough for a driver to notice before another
@@ -51,6 +58,9 @@ export class JobsService {
   private readonly activeJobAlertLoops = new Map<string, NodeJS.Timeout>();
   private static readonly ALERT_INTERVAL_MS = 20_000;
   private static readonly ALERT_MAX_REPEATS = 20;
+  // ~3 minutes of silence before nudging the customer -- long enough that
+  // it's not a knee-jerk reaction to a normal lull, sent once per job.
+  private static readonly NO_BIDS_NUDGE_AT_REPEAT = 9;
 
   constructor(
     @InjectRepository(Job)
@@ -68,6 +78,11 @@ export class JobsService {
     const url = this.configService.get<string>('SUPABASE_URL');
     const key = this.configService.get<string>('SUPABASE_SERVICE_KEY');
     if (url && key) this.supabase = createClient(url, key);
+  }
+
+  async onModuleInit() {
+    await this.jobRepo.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS "baseAmount" decimal(15,2)`);
+    await this.jobRepo.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS "customerOfferAmount" decimal(15,2)`);
   }
 
   // ─── Create Job ──────────────────────────────────────────────────────────
@@ -116,6 +131,11 @@ export class JobsService {
     if (rows[0]?.value === true || rows[0]?.value === 'true') {
       throw new ServiceUnavailableException('New bookings are temporarily paused for maintenance');
     }
+    const distanceKm = Number(dto.distanceKm);
+    const baseAmount = Number.isFinite(distanceKm) && distanceKm > 0 ? Math.round(distanceKm * PRICE_PER_KM) : undefined;
+    const requestedOffer = Number((dto as any).customerOfferAmount);
+    const customerOfferAmount = Number.isFinite(requestedOffer) && requestedOffer > 0 ? Math.round(requestedOffer) : baseAmount;
+
     const job = this.jobRepo.create({
       ...dto,
       customerId,
@@ -124,6 +144,8 @@ export class JobsService {
       goodsDeclared: true,
       disclaimerAccepted: true,
       disclaimerAcceptedAt: new Date(),
+      baseAmount,
+      customerOfferAmount,
     });
     const saved = await this.jobRepo.save(job);
 
@@ -195,6 +217,15 @@ export class JobsService {
         }
         const bids = await this.bidRepo.find({ where: { jobId: job.id } });
         const alreadyBid = bids.map(b => b.transporterId);
+
+        if (bids.length === 0 && repeats === JobsService.NO_BIDS_NUDGE_AT_REPEAT && current.customerOfferAmount) {
+          const route = `${current.pickupState} → ${current.deliveryState}`;
+          this.pushService.sendToUser(current.customerId, {
+            ...this.pushService.templates.noBidsYet(route, Number(current.customerOfferAmount)),
+            data: { jobId: job.id, suggestIncrease: true },
+          }).catch(() => {});
+        }
+
         const query = this.userRepo.createQueryBuilder('user')
           .where('user.role = :role', { role: 'transporter' })
           .andWhere('user.isSuspended = false');
@@ -303,9 +334,15 @@ export class JobsService {
       'pickupLat', 'pickupLng', 'deliveryLat', 'deliveryLng',
       'cargoDescription', 'cargoWeight', 'cargoValue', 'vehicleType',
       'deadline', 'specialInstructions', 'insurance', 'goodsCategory', 'distanceKm',
+      'customerOfferAmount',
     ] as const;
     const changes: Partial<Job> = {};
     for (const key of allowed) if (key in dto) (changes as any)[key] = (dto as any)[key];
+    if ('customerOfferAmount' in changes) {
+      const offer = Number(changes.customerOfferAmount);
+      if (!Number.isFinite(offer) || offer <= 0) throw new BadRequestException('Enter a valid offer amount');
+      changes.customerOfferAmount = Math.round(offer);
+    }
     if (Object.keys(changes).length === 0) {
       if ('status' in dto) {
         throw new BadRequestException('Status cannot be changed through the job editing endpoint');

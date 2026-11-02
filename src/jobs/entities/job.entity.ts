@@ -111,6 +111,17 @@ export class Job {
   @Column({ nullable: true, type: 'decimal', precision: 10, scale: 2 })
   distanceKm!: number;
 
+  // The ₦120/km reference price computed at creation from distanceKm --
+  // a fixed snapshot, never changes after the job is posted.
+  @Column({ nullable: true, type: 'decimal', precision: 15, scale: 2 })
+  baseAmount!: number;
+
+  // The customer's current asking price -- starts equal to baseAmount but
+  // the customer can raise or lower it any time before a bid is accepted;
+  // transporters bid against this as their reference.
+  @Column({ nullable: true, type: 'decimal', precision: 15, scale: 2 })
+  customerOfferAmount!: number;
+
   // ─── Day 15: Status timestamps ────────────────────────────────────────────
   @Column({ nullable: true, type: 'timestamp' })
   pickedUpAt!: Date;

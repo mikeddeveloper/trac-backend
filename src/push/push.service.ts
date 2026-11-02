@@ -174,6 +174,12 @@ export class PushService implements OnModuleInit {
       url: '/dashboard',
       tag: 'new-job-posted',
     }),
+    noBidsYet: (jobRoute: string, offerAmount: number) => ({
+      title: '🤔 No bids yet',
+      body: `Your ${jobRoute} delivery (₦${offerAmount.toLocaleString('en-NG')}) hasn't had any offers. Try raising your price to get a transporter faster.`,
+      url: '/dashboard/deliveries',
+      tag: 'no-bids-yet',
+    }),
     newBid: (jobRoute: string, amount: string) => ({
       title: '🏷️ New Bid Received',
       body: `A transporter bid ₦${amount} on your ${jobRoute} delivery`,
