@@ -92,6 +92,39 @@ export class BidsService {
     return saved;
   }
 
+  async updateBid(bidId: string, transporterId: string, amount: number): Promise<Bid> {
+    if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) {
+      throw new BadRequestException('Bid amount must be greater than zero');
+    }
+    const bid = await this.bidsRepo.findOne({ where: { id: bidId }, relations: ['job'] });
+    if (!bid) throw new NotFoundException('Bid not found');
+    if (bid.transporterId !== transporterId) throw new ForbiddenException('You do not own this bid');
+    if (bid.status !== BidStatus.PENDING) throw new BadRequestException('This bid can no longer be changed');
+    if (bid.job.status !== JobStatus.BIDDING) throw new BadRequestException('This job is no longer accepting bids');
+
+    const route = `${bid.job.pickupState} → ${bid.job.deliveryState}`;
+    const customerId = bid.job.customerId;
+
+    bid.amount = amount;
+    const saved = await this.bidsRepo.save(bid);
+
+    if (customerId) {
+      this.eventsGateway.notifyUser(customerId, 'bid:updated', {
+        jobId: bid.jobId,
+        amount,
+        transporterId,
+        message: 'A transporter updated their bid on your delivery',
+      });
+      await this.pushService.sendToUser(customerId, {
+        ...this.pushService.templates.newBid(route, Number(amount).toLocaleString('en-NG')),
+        data: { jobId: bid.jobId },
+      }).catch(() => {});
+    }
+
+    delete (saved as any).job;
+    return saved;
+  }
+
   async getBidsForJob(jobId: string, userId: string, role: string): Promise<Bid[]> {
     const job = await this.jobsService.findById(jobId);
     if (job.customerId !== userId && role !== 'admin') {

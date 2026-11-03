@@ -5,6 +5,7 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { BidsService } from './bids.service';
 import { CreateBidDto } from './dto/create-bid.dto';
+import { UpdateBidDto } from './dto/update-bid.dto';
 
 @Controller('bids')
 export class BidsController {
@@ -21,6 +22,15 @@ export class BidsController {
       body.note,
     );
     return { bid };
+  }
+
+  // PATCH /api/bids/:id — transporter adjusts their own bid amount while
+  // the job is still open for bidding and no one has accepted yet
+  @Patch(':id')
+  @UseGuards(AuthGuard('jwt'))
+  async updateBid(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string, @Body() body: UpdateBidDto, @Request() req) {
+    const bid = await this.bidsService.updateBid(id, req.user.id, body.amount);
+    return { bid, message: 'Bid updated' };
   }
 
   // GET /api/bids/job/:jobId — customer views all bids on their job
