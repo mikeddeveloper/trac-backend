@@ -355,7 +355,11 @@ export class PaymentsService {
       jobId: job.id, amount: payment.amount, reference: payment.reference,
       message: `Customer has paid ₦${Number(payment.amount).toLocaleString()}. Proceed to pickup!`,
     });
-    await this.pushService.sendToUser(job.transporterId, {
+    // Fire-and-forget: this must never hold up the payment response the
+    // customer is waiting on. It was previously `await`ed here, so a slow
+    // or hanging Expo push API call made wallet payments feel frozen even
+    // though the money had already moved and the job was already updated.
+    this.pushService.sendToUser(job.transporterId, {
       title: '💰 Payment Confirmed', body: `Customer paid ₦${Number(payment.amount).toLocaleString()}. Head to pickup now!`,
       url: '/dashboard/tracking', tag: 'payment', icon: '/icons/icon-192x192.png',
       data: { jobId: job.id },
@@ -737,7 +741,7 @@ export class PaymentsService {
       reference: paystackMeta?.refund_reference || paystackMeta?.id,
       message: `Your refund of ₦${amount} has been processed to your original payment method.`,
     });
-    await this.pushService.sendToUser(payment.customerId, {
+    this.pushService.sendToUser(payment.customerId, {
       title: 'Refund processed',
       body: `Your ₦${amount} refund has been processed. Your bank may take several business days to reflect it.`,
       url: '/dashboard/payments',
@@ -843,7 +847,7 @@ export class PaymentsService {
           amount: payment.transporterPayout || payment.amount,
           message: `₦${amount} has been released to your account.`,
         });
-        await this.pushService.sendToUser(job.transporterId,
+        this.pushService.sendToUser(job.transporterId,
           { ...this.pushService.templates.payoutReleased(amount), data: { jobId: payment.jobId } },
         ).catch(() => {});
         const transporter = await this.userRepo.findOne({ where: { id: job.transporterId } });
@@ -955,7 +959,7 @@ export class PaymentsService {
         amount: payment.transporterPayout,
         message: `₦${amount} is now available! Go to Earnings to withdraw.`,
       });
-      await this.pushService.sendToUser(job.transporterId, {
+      this.pushService.sendToUser(job.transporterId, {
         title: '💰 Payment Available!',
         body: `₦${amount} is ready to withdraw for your delivery.`,
         url: '/dashboard/earnings',
