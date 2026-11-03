@@ -8,5 +8,6 @@ import {WaitlistEntry} from './entities/waitlist-entry.entity';
  imports:[TypeOrmModule.forFeature([WaitlistEntry])],
  controllers:[WaitlistController],
  providers:[WaitlistService],
+ exports:[WaitlistService],
 })
 export class WaitlistModule{}

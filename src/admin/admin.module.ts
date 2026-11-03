@@ -17,9 +17,10 @@ import { AdminGuard } from './admin.guard';
 import { EmailModule } from '../email/email.module';
 import { PaymentsModule } from '../payments/payments.module';
 import { ChatModule } from '../chat/chat.module';
+import { WaitlistModule } from '../waitlist/waitlist.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Job, Payment, Dispute, User, Rating]), PushModule, EventsModule, VerificationModule, EmailModule, PaymentsModule, ChatModule],
+  imports: [TypeOrmModule.forFeature([Job, Payment, Dispute, User, Rating]), PushModule, EventsModule, VerificationModule, EmailModule, PaymentsModule, ChatModule, WaitlistModule],
   controllers: [AdminController],
   providers: [AdminService, AdminGuard],
   exports: [AdminService],

@@ -7,6 +7,7 @@ import { AdminService } from './admin.service';
 import { VerificationService } from '../verification/verification.service';
 import { AdminGuard } from './admin.guard';
 import { ChatService } from '../chat/chat.service';
+import { WaitlistService } from '../waitlist/waitlist.service';
 
 @Controller('admin')
 @UseGuards(AuthGuard('jwt'), AdminGuard)
@@ -15,7 +16,18 @@ export class AdminController {
     private readonly adminService: AdminService,
     private readonly verificationService: VerificationService,
     private readonly chatService: ChatService,
+    private readonly waitlistService: WaitlistService,
   ) {}
+
+  // ─── GET /admin/waitlist — Trac Food waitlist signups ───────────────────────
+  @Get('waitlist')
+  async getWaitlist(@Query('type') type?: 'customer' | 'vendor') {
+    const [entries, counts] = await Promise.all([
+      this.waitlistService.listAll(type),
+      this.waitlistService.count(),
+    ]);
+    return { entries, counts };
+  }
 
   // ─── GET /admin/overview ─────────────────────────────────────────────────────
   @Get('overview')

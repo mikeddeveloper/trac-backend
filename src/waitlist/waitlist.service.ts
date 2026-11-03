@@ -33,6 +33,11 @@ export class WaitlistService implements OnModuleInit{
   return {joined:true,position};
  }
 
+ // For the Trac Logistics admin dashboard's Waitlist tab.
+ async listAll(type?:'customer'|'vendor'):Promise<WaitlistEntry[]>{
+  return this.repo.find({where:type?{type}:{},order:{createdAt:'DESC'}});
+ }
+
  async count():Promise<{total:number;customers:number;vendors:number}>{
   const [total,customers,vendors]=await Promise.all([
    this.repo.count(),
