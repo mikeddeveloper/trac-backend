@@ -447,6 +447,58 @@ export class AdminService {
     return { message: 'Community update campaign completed', recipients: users.length, sent, skipped, failed: failed.length, failedEmails: failed };
   }
 
+  // ─── Broadcast an arbitrary push/in-app notification to users ───────────────
+
+  async broadcastNotification(requesterId: string, input: {
+    title: string;
+    body: string;
+    url?: string;
+    audience: 'all' | 'customers' | 'transporters';
+  }) {
+    const requester = await this.userRepo.findOne({ where: { id: requesterId } });
+    if (await this.resolveAdminRole(requester) !== 'super_admin') {
+      throw new ForbiddenException('Only a super administrator can broadcast notifications');
+    }
+
+    const title = input.title?.trim();
+    const body = input.body?.trim();
+    if (!title || !body) {
+      throw new BadRequestException('Title and message are required');
+    }
+
+    const roles = input.audience === 'customers'
+      ? [UserRole.CUSTOMER]
+      : input.audience === 'transporters'
+      ? [UserRole.TRANSPORTER]
+      : [UserRole.CUSTOMER, UserRole.TRANSPORTER];
+
+    const users = await this.userRepo.createQueryBuilder('user')
+      .where('user.role IN (:...roles)', { roles })
+      .andWhere('user.isSuspended = false')
+      .getMany();
+
+    let sent = 0;
+    let noSubscription = 0;
+    for (const user of users) {
+      const result = await this.pushService.sendToUser(user.id, {
+        title,
+        body,
+        url: input.url || '/dashboard',
+        tag: 'broadcast',
+      });
+      if (result.sent > 0) sent++;
+      else noSubscription++;
+    }
+
+    return {
+      message: 'Broadcast sent',
+      audience: input.audience,
+      recipients: users.length,
+      sent,
+      noSubscription,
+    };
+  }
+
   private async assertSuperAdmin(requesterId: string): Promise<User> {
     const requester = await this.userRepo.findOne({ where: { id: requesterId } });
     if (await this.resolveAdminRole(requester) !== 'super_admin') {

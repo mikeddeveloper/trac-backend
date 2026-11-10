@@ -95,6 +95,15 @@ export class AdminController {
     return this.adminService.sendCommunityUpdate(req.user.id);
   }
 
+  // ─── POST /admin/notifications/broadcast — send an ad-hoc push/in-app notification ──
+  @Post('notifications/broadcast')
+  async broadcastNotification(
+    @Request() req: any,
+    @Body() body: { title: string; body: string; url?: string; audience: 'all' | 'customers' | 'transporters' },
+  ) {
+    return this.adminService.broadcastNotification(req.user.id, body);
+  }
+
   @Get('promotions/launch-bonus')
   async getLaunchBonusStatus(@Request() req: any) {
     return this.adminService.getLaunchBonusStatus(req.user.id);
