@@ -655,9 +655,18 @@ export class AdminService {
     });
     this.eventsGateway.notifyUser(userId, 'wallet:credited', { amount, kind: 'admin_credit', reference });
     await this.pushService.sendToUser(userId, {
-      title: 'Trac wallet funded', body: `NGN ${amount.toLocaleString('en-NG')} has been added to your Trac wallet.`,
+      title: 'Your Trac wallet has been funded', body: `NGN ${amount.toLocaleString('en-NG')} has been added to your wallet.`,
       icon: '/icon-192.png', url: '/dashboard/payments', tag: 'wallet-admin-credit',
+      data: { kind: 'admin_credit', amount, reference },
     }).catch(() => undefined);
+    await this.emailService.sendActivityEmail(
+      user,
+      'Your Trac wallet has been funded',
+      'Your wallet has been funded',
+      `NGN ${amount.toLocaleString('en-NG')} has been added to your Trac wallet. Reason: ${reason}. Reference: ${reference}.`,
+      'https://trac.com.ng/dashboard/payments',
+      'View your wallet',
+    );
     return { message: 'Wallet funded successfully', reference, amount, balance: Number(rows[0]?.balance || 0) };
   }
 
