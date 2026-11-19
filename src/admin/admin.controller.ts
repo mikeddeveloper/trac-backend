@@ -122,6 +122,16 @@ export class AdminController {
     return this.adminService.getUserById(id);
   }
 
+  @Post('users/:id/wallet-credit')
+  async creditUserWallet(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() body: { amount: number; reason: string },
+  ) {
+    if (req.user.role !== 'admin') throw new ForbiddenException();
+    return this.adminService.creditUserWallet(id, req.user.id, body.amount, body.reason);
+  }
+
   // ─── PATCH /admin/users/:id/suspend ──────────────────────────────────────────
   @Patch('users/:id/suspend')
   @UseGuards(AuthGuard('jwt'))

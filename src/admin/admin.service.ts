@@ -631,6 +631,36 @@ export class AdminService {
     };
   }
 
+  async creditUserWallet(userId: string, adminId: string, rawAmount: number, rawReason: string) {
+    const amount = Number(rawAmount);
+    const reason = String(rawReason || '').trim();
+    if (!Number.isFinite(amount) || amount <= 0 || Math.round(amount * 100) !== amount * 100 || amount > 10000000) {
+      throw new BadRequestException('Enter an amount between NGN 0.01 and NGN 10,000,000');
+    }
+    if (reason.length < 3 || reason.length > 240) throw new BadRequestException('Add a reason between 3 and 240 characters');
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user || user.role === UserRole.ADMIN) throw new NotFoundException('Customer or transporter not found');
+    await this.ensurePromotionalWalletTables();
+    const reference = `ADMIN-CREDIT-${Date.now()}-${userId}`;
+    const rows = await this.userRepo.manager.transaction(async manager => {
+      await manager.query(`
+        INSERT INTO wallet_entries ("reference", "userId", "amount", "direction", "kind", "status", "metadata", "completedAt")
+        VALUES ($1,$2,$3,'credit','admin_credit','success',$4::jsonb,now())
+      `, [reference, userId, amount, JSON.stringify({ reason, creditedBy: adminId })]);
+      return manager.query(`
+        INSERT INTO wallet_accounts ("userId", "balance") VALUES ($1,$2)
+        ON CONFLICT ("userId") DO UPDATE SET "balance"=wallet_accounts."balance"+EXCLUDED."balance", "updatedAt"=now()
+        RETURNING "balance"
+      `, [userId, amount]);
+    });
+    this.eventsGateway.notifyUser(userId, 'wallet:credited', { amount, kind: 'admin_credit', reference });
+    await this.pushService.sendToUser(userId, {
+      title: 'Trac wallet funded', body: `NGN ${amount.toLocaleString('en-NG')} has been added to your Trac wallet.`,
+      icon: '/icon-192.png', url: '/dashboard/payments', tag: 'wallet-admin-credit',
+    }).catch(() => undefined);
+    return { message: 'Wallet funded successfully', reference, amount, balance: Number(rows[0]?.balance || 0) };
+  }
+
   // ─── Get all jobs (paginated) ─────────────────────────────────────────────────
 
   async getAllJobs(status?: string, search?: string, page = 1, limit = 10) {
