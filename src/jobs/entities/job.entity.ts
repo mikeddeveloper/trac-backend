@@ -51,6 +51,17 @@ export class Job {
   @Column({ nullable: true })
   deliveryNote!: string;
 
+  @Column({ type: 'jsonb', nullable: true })
+  additionalDrops!: Array<{
+    address: string;
+    recipientName: string;
+    recipientPhone: string;
+    cargoDescription: string;
+    cargoWeight: number;
+    cargoValue: number;
+    specialInstructions?: string;
+  }> | null;
+
   @Column({ nullable: true })
   recipientName!: string;
 
@@ -115,6 +126,9 @@ export class Job {
   // a fixed snapshot, never changes after the job is posted.
   @Column({ nullable: true, type: 'decimal', precision: 15, scale: 2 })
   baseAmount!: number;
+
+  @Column({ nullable: true, type: 'decimal', precision: 10, scale: 2 })
+  ratePerKm!: number;
 
   // The customer's current asking price -- starts equal to baseAmount but
   // the customer can raise or lower it any time before a bid is accepted;

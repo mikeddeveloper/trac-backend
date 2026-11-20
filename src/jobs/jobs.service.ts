@@ -40,11 +40,13 @@ const ROLE_PERMISSIONS: Record<string, JobStatus[]> = {
   admin:       [JobStatus.CANCELLED],
 };
 
-// ₦120/km is the platform's reference starting price. It's a baseline for
-// the customer's opening offer, not a fixed fare -- both sides can move it
-// from there (customer by editing customerOfferAmount, transporter by
-// bidding above or below it).
-const PRICE_PER_KM = 120;
+// Reference opening rates. Customers and transporters can negotiate the final
+// amount through their offers; these rates only set the suggested starting price.
+const PRICE_PER_KM: Record<string, number> = {
+  rider: 120, motorcycle: 120, bike: 120,
+  car: 900, van: 900,
+  'truck-small': 900, 'truck-medium': 900, 'truck-large': 900, truck: 900,
+};
 
 @Injectable()
 export class JobsService implements OnModuleInit {
@@ -83,6 +85,8 @@ export class JobsService implements OnModuleInit {
   async onModuleInit() {
     await this.jobRepo.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS "baseAmount" decimal(15,2)`);
     await this.jobRepo.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS "customerOfferAmount" decimal(15,2)`);
+    await this.jobRepo.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS "additionalDrops" jsonb`);
+    await this.jobRepo.query(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS "ratePerKm" decimal(10,2)`);
   }
 
   // ─── Create Job ──────────────────────────────────────────────────────────
@@ -111,7 +115,7 @@ export class JobsService implements OnModuleInit {
       throw new BadRequestException('Recipient name and phone number are required');
     }
     const cargoWeight = Number(dto.cargoWeight);
-    const validVehicleTypes = new Set(['rider', 'van', 'truck-small', 'truck-medium', 'truck-large']);
+    const validVehicleTypes = new Set(['rider', 'motorcycle', 'bike', 'car', 'van', 'truck', 'truck-small', 'truck-medium', 'truck-large']);
     if (!Number.isFinite(cargoWeight) || cargoWeight <= 0) {
       throw new BadRequestException('Cargo weight must be greater than 0 kg');
     }
@@ -132,9 +136,16 @@ export class JobsService implements OnModuleInit {
       throw new ServiceUnavailableException('New bookings are temporarily paused for maintenance');
     }
     const distanceKm = Number(dto.distanceKm);
-    const baseAmount = Number.isFinite(distanceKm) && distanceKm > 0 ? Math.round(distanceKm * PRICE_PER_KM) : undefined;
+    const vehicleType = String(dto.vehicleType || '').toLowerCase();
+    const isBike = ['rider', 'motorcycle', 'bike'].includes(vehicleType);
+    const requestedRate = Number((dto as any).ratePerKm);
+    const perKm = isBike
+      ? (Number.isFinite(requestedRate) ? Math.max(120, Math.min(150, requestedRate)) : 120)
+      : (PRICE_PER_KM[vehicleType] ?? 900);
+    const baseAmount = Number.isFinite(distanceKm) && distanceKm > 0 ? Math.round(distanceKm * perKm) : undefined;
     const requestedOffer = Number((dto as any).customerOfferAmount);
     const customerOfferAmount = Number.isFinite(requestedOffer) && requestedOffer > 0 ? Math.round(requestedOffer) : baseAmount;
+    const additionalDrops = this.validateAdditionalDrops((dto as any).additionalDrops);
 
     const job = this.jobRepo.create({
       ...dto,
@@ -145,7 +156,9 @@ export class JobsService implements OnModuleInit {
       disclaimerAccepted: true,
       disclaimerAcceptedAt: new Date(),
       baseAmount,
+      ratePerKm: perKm,
       customerOfferAmount,
+      additionalDrops,
     });
     const saved = await this.jobRepo.save(job);
 
@@ -165,6 +178,35 @@ export class JobsService implements OnModuleInit {
     void this.notifyTransportersAboutNewJob(saved);
 
     return saved;
+  }
+
+  private validateAdditionalDrops(value: unknown) {
+    if (value == null) return [];
+    if (!Array.isArray(value) || value.length > 9) {
+      throw new BadRequestException('A delivery can include up to 10 drop-off locations');
+    }
+    return value.map((raw: any, index) => {
+      const address = String(raw?.address || '').trim();
+      const recipientName = String(raw?.recipientName || '').trim();
+      const recipientPhone = String(raw?.recipientPhone || '').trim();
+      const cargoDescription = String(raw?.cargoDescription || '').trim();
+      const cargoWeight = Number(raw?.cargoWeight);
+      const cargoValue = Number(raw?.cargoValue);
+      if (!address || !recipientName || !recipientPhone || !cargoDescription) {
+        throw new BadRequestException(`Complete the address, recipient, phone, and items for drop-off ${index + 2}`);
+      }
+      if (address.length > 500 || recipientName.length > 160 || recipientPhone.length > 40 || cargoDescription.length > 500) {
+        throw new BadRequestException(`Drop-off ${index + 2} has a field that is too long`);
+      }
+      if (!Number.isFinite(cargoWeight) || cargoWeight <= 0 || !Number.isFinite(cargoValue) || cargoValue < 0) {
+        throw new BadRequestException(`Enter a valid weight and cargo value for drop-off ${index + 2}`);
+      }
+      return {
+        address, recipientName, recipientPhone, cargoDescription,
+        cargoWeight, cargoValue,
+        specialInstructions: String(raw?.specialInstructions || '').trim().slice(0, 1000),
+      };
+    });
   }
 
   private async notifyTransportersAboutNewJob(job: Job): Promise<void> {
@@ -334,7 +376,7 @@ export class JobsService implements OnModuleInit {
       'pickupLat', 'pickupLng', 'deliveryLat', 'deliveryLng',
       'cargoDescription', 'cargoWeight', 'cargoValue', 'vehicleType',
       'deadline', 'specialInstructions', 'insurance', 'goodsCategory', 'distanceKm',
-      'customerOfferAmount',
+      'customerOfferAmount', 'additionalDrops', 'ratePerKm',
     ] as const;
     const changes: Partial<Job> = {};
     for (const key of allowed) if (key in dto) (changes as any)[key] = (dto as any)[key];
@@ -342,6 +384,15 @@ export class JobsService implements OnModuleInit {
       const offer = Number(changes.customerOfferAmount);
       if (!Number.isFinite(offer) || offer <= 0) throw new BadRequestException('Enter a valid offer amount');
       changes.customerOfferAmount = Math.round(offer);
+    }
+    if ('ratePerKm' in changes) {
+      const rate = Number(changes.ratePerKm);
+      const vehicle = String((dto as any).vehicleType || existing.vehicleType || '').toLowerCase();
+      const isBike = ['rider', 'motorcycle', 'bike'].includes(vehicle);
+      if (!Number.isFinite(rate) || (isBike ? rate < 120 || rate > 150 : rate !== 900)) {
+        throw new BadRequestException(isBike ? 'Bike rate must be between ₦120 and ₦150 per km' : 'Car, van, and truck rates are ₦900 per km');
+      }
+      changes.ratePerKm = rate;
     }
     if (Object.keys(changes).length === 0) {
       if ('status' in dto) {
@@ -362,11 +413,43 @@ export class JobsService implements OnModuleInit {
       if (job.customerId !== customerId) throw new ForbiddenException('This is not your delivery');
       const editableStatuses = [JobStatus.PENDING, JobStatus.BIDDING, JobStatus.BID_SELECTED, JobStatus.PAYMENT_PENDING];
       if (!editableStatuses.includes(job.status)) throw new BadRequestException('A paid delivery cannot be edited');
+      if ('additionalDrops' in (dto as any)) {
+        changes.additionalDrops = this.validateAdditionalDrops((dto as any).additionalDrops);
+      }
       await manager.update(Job, jobId, changes);
     });
     const updated = await this.getJobById(jobId);
-    this.eventsGateway.broadcast('job:updated', { jobId, pickupState: updated.pickupState, deliveryState: updated.deliveryState });
+    this.eventsGateway.broadcast('job:updated', {
+      jobId, pickupState: updated.pickupState, deliveryState: updated.deliveryState,
+      customerOfferAmount: updated.customerOfferAmount,
+    });
+    if ('customerOfferAmount' in changes) {
+      void this.notifyTransportersOfCustomerCounter(updated).catch(error => {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`Could not notify pending transporters about customer counter for job ${jobId}: ${message}`);
+      });
+    }
     return updated;
+  }
+
+  private async notifyTransportersOfCustomerCounter(job: Job) {
+    const bids = await this.bidRepo.find({ where: { jobId: job.id, status: 'pending' as any } });
+    await Promise.all(bids.map(async bid => {
+      try {
+        this.eventsGateway.notifyUser(bid.transporterId, 'bid:customer-counter', {
+          jobId: job.id, amount: Number(job.customerOfferAmount),
+          message: 'The customer updated their asking price. You can adjust your offer.',
+        });
+        await this.pushService.sendToUser(bid.transporterId, {
+          title: 'Customer updated their offer',
+          body: `The customer is now offering ₦${Number(job.customerOfferAmount).toLocaleString('en-NG')} for this delivery.`,
+          url: '/dashboard/deliveries', tag: 'customer-counter', data: { jobId: job.id },
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`Customer counter notification failed for transporter ${bid.transporterId}: ${message}`);
+      }
+    }));
   }
 
   async updateTransporterLocation(
