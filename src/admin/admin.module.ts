@@ -10,6 +10,7 @@ import { Payment } from '../payments/entities/payment.entity';
 import { Dispute } from '../disputes/entities/dispute.entity';
 import { User } from '../users/entities/user.entity';
 import { Rating } from '../ratings/entities/rating.entity';
+import { Bid } from '../bids/entities/bid.entity';
 import { PushModule } from '../push/push.module';
 import { EventsModule } from '../events/events.module';
 import { VerificationModule } from '../verification/verification.module';
@@ -20,7 +21,7 @@ import { ChatModule } from '../chat/chat.module';
 import { WaitlistModule } from '../waitlist/waitlist.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Job, Payment, Dispute, User, Rating]), PushModule, EventsModule, VerificationModule, EmailModule, PaymentsModule, ChatModule, WaitlistModule],
+  imports: [TypeOrmModule.forFeature([Job, Payment, Dispute, User, Rating, Bid]), PushModule, EventsModule, VerificationModule, EmailModule, PaymentsModule, ChatModule, WaitlistModule],
   controllers: [AdminController],
   providers: [AdminService, AdminGuard],
   exports: [AdminService],

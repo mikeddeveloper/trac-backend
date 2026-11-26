@@ -9,6 +9,7 @@ import { Payment, PaymentStatus, PaymentType } from '../payments/entities/paymen
 import { Dispute, DisputeStatus } from '../disputes/entities/dispute.entity';
 import { User, UserRole } from '../users/entities/user.entity';
 import { Rating } from '../ratings/entities/rating.entity';
+import { Bid } from '../bids/entities/bid.entity';
 import { PushService } from '../push/push.service';
 import { EventsGateway } from '../events/events.gateway';
 import { EmailService } from '../email/email.service';
@@ -29,6 +30,8 @@ export class AdminService {
     private userRepo: Repository<User>,
     @InjectRepository(Rating)
     private ratingRepo: Repository<Rating>,
+    @InjectRepository(Bid)
+    private bidRepo: Repository<Bid>,
     private pushService: PushService,
     private eventsGateway: EventsGateway,
     private emailService: EmailService,
@@ -693,6 +696,17 @@ export class AdminService {
 
     const [jobs, total] = await query.getManyAndCount();
     const pickupProofs = await this.getPickupProofs(jobs.map(job => job.id));
+    const bids = jobs.length ? await this.bidRepo.createQueryBuilder('bid')
+      .leftJoinAndSelect('bid.transporter', 'transporter')
+      .where('bid.jobId IN (:...jobIds)', { jobIds: jobs.map(job => job.id) })
+      .orderBy('bid.createdAt', 'ASC')
+      .getMany() : [];
+    const bidsByJob = new Map<string, Bid[]>();
+    for (const bid of bids) {
+      const jobBids = bidsByJob.get(bid.jobId) || [];
+      jobBids.push(bid);
+      bidsByJob.set(bid.jobId, jobBids);
+    }
 
     return {
       jobs: jobs.map(j => {
@@ -708,7 +722,23 @@ export class AdminService {
         cargoDescription: j.cargoDescription,
         cargoWeight: j.cargoWeight,
         cargoValue: j.cargoValue,
+        baseAmount: j.baseAmount,
+        customerOfferAmount: j.customerOfferAmount,
         acceptedAmount: j.acceptedAmount,
+        bids: (bidsByJob.get(j.id) || []).map(bid => ({
+          id: bid.id,
+          amount: Number(bid.amount),
+          note: bid.note,
+          status: bid.status,
+          createdAt: bid.createdAt,
+          updatedAt: bid.updatedAt,
+          transporter: bid.transporter ? {
+            id: bid.transporter.id,
+            fullName: bid.transporter.fullName,
+            email: bid.transporter.email,
+            phone: bid.transporter.phone,
+          } : null,
+        })),
         goodsCategory: (j as any).goodsCategory,
         disclaimerAccepted: (j as any).disclaimerAccepted,
         deliveryOtp: (j as any).deliveryOtp,
@@ -755,9 +785,28 @@ export class AdminService {
       where: { jobId } as any,
     });
     const pickupProof = (await this.getPickupProofs([jobId])).get(jobId);
+    const bids = await this.bidRepo.find({
+      where: { jobId },
+      relations: ['transporter'],
+      order: { createdAt: 'ASC' },
+    });
 
     return {
       ...job,
+      bids: bids.map(bid => ({
+        id: bid.id,
+        amount: Number(bid.amount),
+        note: bid.note,
+        status: bid.status,
+        createdAt: bid.createdAt,
+        updatedAt: bid.updatedAt,
+        transporter: bid.transporter ? {
+          id: bid.transporter.id,
+          fullName: bid.transporter.fullName,
+          email: bid.transporter.email,
+          phone: bid.transporter.phone,
+        } : null,
+      })),
       payment: payment || null,
       pickupProofUrl: pickupProof?.photoUrl || null,
       pickupProofCapturedAt: pickupProof?.capturedAt || null,
