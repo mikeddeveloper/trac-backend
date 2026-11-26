@@ -38,6 +38,12 @@ export class AdminService {
     private paymentsService: PaymentsService,
   ) {}
 
+  async getAdminContext(userId: string) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    const role = await this.resolveAdminRole(user);
+    return { adminRole: role || 'unassigned', permissions: role === 'super_admin' ? ['*'] : role === 'finance' ? ['payments', 'revenue'] : role === 'compliance' ? ['verification', 'licenses', 'documents', 'disputes', 'jobs'] : role === 'support' ? ['jobs', 'users', 'activity'] : ['jobs', 'users', 'verification', 'licenses', 'disputes', 'activity'] };
+  }
+
   private async getPickupProofs(jobIds: string[]) {
     const proofs = new Map<string, {
       photoUrl: string;
@@ -878,7 +884,7 @@ export class AdminService {
 
   // ─── Stats ───────────────────────────────────────────────────────────────────
 
-  async getStats() {
+  async getStats(adminRole?: string) {
     const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 
     const [
@@ -914,10 +920,10 @@ export class AdminService {
       totalCustomers,
       totalTransporters,
       totalJobs,
-      totalRevenue: platformCommission,
-      grossProcessed,
-      platformCommission,
-      totalVAT,
+      totalRevenue: ['super_admin', 'finance'].includes(adminRole || 'super_admin') ? platformCommission : null,
+      grossProcessed: ['super_admin', 'finance'].includes(adminRole || 'super_admin') ? grossProcessed : null,
+      platformCommission: ['super_admin', 'finance'].includes(adminRole || 'super_admin') ? platformCommission : null,
+      totalVAT: ['super_admin', 'finance'].includes(adminRole || 'super_admin') ? totalVAT : null,
       pendingVerifications,
       jobsThisMonth,
       newUsersThisMonth,

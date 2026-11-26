@@ -19,6 +19,11 @@ export class AdminController {
     private readonly waitlistService: WaitlistService,
   ) {}
 
+  @Get('me')
+  async getAdminContext(@Request() req: any) {
+    return this.adminService.getAdminContext(req.user.id);
+  }
+
   // ─── GET /admin/waitlist — Trac Food waitlist signups ───────────────────────
   @Get('waitlist')
   async getWaitlist(@Query('type') type?: 'customer' | 'vendor') {
@@ -362,7 +367,7 @@ export class AdminController {
   @UseGuards(AuthGuard('jwt'))
   async getStats(@Request() req: any) {
     if (req.user.role !== 'admin') throw new ForbiddenException();
-    return this.adminService.getStats();
+    return this.adminService.getStats(req.user.adminRole);
   }
 
   // ─── GET /admin/activity ─────────────────────────────────────────────────────
